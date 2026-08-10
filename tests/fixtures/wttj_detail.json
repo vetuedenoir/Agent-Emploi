@@ -1,0 +1,169 @@
+{
+ "job": {
+  "key_missions": [],
+  "salary_period": null,
+  "updated_at": "2026-08-08T22:00:41.940794Z",
+  "language": "en",
+  "organization": {
+   "name": "Doctolib",
+   "description": "<p>Doctolib est une entreprise à mission œuvrant pour un monde en meilleure santé avec plus de 2500 employés en France, en Allemagne et en Italie. Depuis 2013, Doctolib améliore le quotidien de plus de 300 000 professionnels de santé grâce à des technologies et des services innovants.<br/>Doctolib rend également l’accès aux soins plus rapide et plus égalitaire : plus de 70 millions de personnes prennent rendez-vous et gèrent leur santé via Doctolib, en toute sécurité.</p><p>Nous formons une équipe ayant à cœur d’améliorer la santé, avec une approche centrée sur l’humain et un esprit entrepreneurial. Nos 4 valeurs guident la façon dont nous travaillons et prenons des décisions au quotidien : </p><ul><li><p>Nous nous engageons à avoir un impact positif sur le quotidien des soignants et la santé de tous.<br/><strong>#serve</strong></p></li><li><p>Nous agissons avec bienveillance : nous sommes à l’écoute et faisons preuve d’empathie et d’enthousiasme. <strong>#care</strong></p></li><li><p>Nous restons humbles : nous cherchons chaque jour à nous dépasser et à apprendre sans cesse de nouvelles choses. <strong>#learn</strong></p></li><li><p>Nous sommes tournés vers l’action : nous avançons vite et nous sommes convaincus que tout est possible si nous faisons bouger les lignes au nom de nos utilisateurs. <strong>#act</strong></p></li></ul>",
+   "reference": "8GNWxLL",
+   "slug": "doctolib",
+   "logo": {
+    "url": "https://cdn-images.welcometothejungle.com/WdmCR52zeoOlsD5Iq5ZWkh0lloZvMUgZsWCLbnZ-kDk/rs:auto:400::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9vcmdhbml6YXRpb24vbG9nby8yNDQ1LzE0NDQ5Mi8yOTAzY2RiYi0zYjFlLTQzMWQtYTgyNS1jZGUyZDBkZTRiYjkucG5n",
+    "thumb": {
+     "url": "https://cdn-images.welcometothejungle.com/rGI3kJ414-wKPfHF2PhyB4cYUqfu2SxNgZTB5eKngks/rs:auto:70::/q:85/czM6Ly93dHRqLXByb2R1Y3Rpb24vdXBsb2Fkcy9vcmdhbml6YXRpb24vbG9nby8yNDQ1LzE0NDQ5Mi8yOTAzY2RiYi0zYjFlLTQzMWQtYTgyNS1jZGUyZDBkZTRiYjkucG5n"
+    }
+   },
+   "sectors": [
+    {
+     "name": "Mobile Apps",
+     "parent_name": "Tech"
+    },
+    {
+     "name": "Software",
+     "parent_name": "Tech"
+    },
+    {
+     "name": "SaaS / Cloud Services",
+     "parent_name": "Tech"
+    },
+    {
+     "name": "Health",
+     "parent_name": "Health / Social / Environment"
+    }
+   ],
+   "has_external_ats": true,
+   "website_organization": {
+    "slug": "doctolib"
+   },
+   "turnover": null,
+   "revenue": "",
+   "parity_women": null,
+   "parity_men": null,
+   "nb_employees": 3000,
+   "media_website_url": "https://about.doctolib.com/",
+   "creation_year": 2013,
+   "average_age": null
+  },
+  "company_summary": "Plateforme de santé pour praticiens et patients en Europe.",
+  "experience_level": null,
+  "contract_type": "full_time",
+  "salary_currency": null,
+  "salary_max": null,
+  "profession": {
+   "sub_category_reference": "data-business-intelligence-yZjY1",
+   "sub_category_name": {
+    "cs": "Data/Business Intelligence",
+    "en": "Data / Business Intelligence",
+    "es": "Datos/Inteligencia empresarial",
+    "fr": "Données/Business Intelligence",
+    "sk": "Údaje/obchodné spravodajstvo"
+   },
+   "category_reference": "tech-engineering-3NjUy",
+   "category_name": {
+    "cs": "Technika a strojírenství",
+    "en": "Tech & Engineering",
+    "es": "Tecnología e ingeniería",
+    "fr": "Technologie et ingénierie",
+    "sk": "Technika a inžinierstvo"
+   }
+  },
+  "tools": [
+   {
+    "name": "Java",
+    "reference": "12ee4e2b-81a3-4290-9df9-5897699b86bf"
+   },
+   {
+    "name": "Doctolib",
+    "reference": "1aadca40-58c8-4205-82a7-835abbe25487"
+   },
+   {
+    "name": "React Native",
+    "reference": "2de950b8-9724-492b-8f94-47832ddaf111"
+   },
+   {
+    "name": "Basic",
+    "reference": "483728af-764c-40cf-b288-b4565d9c9b1f"
+   },
+   {
+    "name": "TypeScript",
+    "reference": "4e07aad2-c036-46a6-a93b-d60d1bfd839e"
+   },
+   {
+    "name": "Python",
+    "reference": "f7b4954b-0811-423e-83c8-140b519aa616"
+   },
+   {
+    "name": "Kotlin",
+    "reference": "fbb7e6fe-f37d-4376-80c4-d032db925bee"
+   }
+  ],
+  "ats": "kombo",
+  "skills": [
+   {
+    "name": {
+     "cs": "Důvěrnost údajů",
+     "en": "Data privacy",
+     "es": "Confidencialidad de los datos",
+     "fr": "Confidentialité des données",
+     "sk": "Dôvernosť údajov"
+    },
+    "reference": "297011f6-eb8c-4093-a78b-dd86930d687b"
+   },
+   {
+    "name": {
+     "cs": "Vedení rozhovorů",
+     "en": "Interviewing",
+     "es": "Gestión de entrevistas",
+     "fr": "Gestion des entretiens",
+     "sk": "Vedenie rozhovoru"
+    },
+    "reference": "61df7feb-3117-4fc2-84c5-234f829c8039"
+   },
+   {
+    "name": {
+     "cs": "Mechanické dovednosti",
+     "en": "Mechanical skills",
+     "es": "Conocimientos mecánicos",
+     "fr": "Mécanique",
+     "sk": "Mechanické zručnosti"
+    },
+    "reference": "e5214e99-3722-4f17-ab3c-af03ca5c1089"
+   }
+  ],
+  "offices": [
+   {
+    "address": "Paris, Ile-de-France, France",
+    "local_address": "Paris, Île-de-France, France",
+    "city": "Paris",
+    "latitude": 48.85717,
+    "longitude": 2.3414,
+    "country_code": "FR",
+    "district": "Paris",
+    "zip_code": "75001",
+    "local_district": "Paris",
+    "local_city": "Paris"
+   }
+  ],
+  "archived_at": null,
+  "status": "published",
+  "contract_duration_max": null,
+  "remote": "partial",
+  "is_spontaneous_application": false,
+  "wttj_reference": "0925a68e-ceda-4ac1-820c-34ee4778c7b6",
+  "salary_min": null,
+  "apply_url": "https://job-boards.greenhouse.io/doctolib/jobs/7750906003?gh_src=6a70e43a3",
+  "description": "<h2>  Your Impact</h2><p>  We are looking for a  <strong>    Senior Machine Learning Engineer  </strong>  to join the  <strong>    ML Engineering  </strong>  team in  <strong>    Patient Solutions  </strong>  .  Your mission will be to improve how people access quality care and manage their health over time by building and leading AI and ML systems that create real, measurable impact. You will work in a feature team developing intelligent patient-facing solutions, from smart practitioner discovery to long-term care management, playing a key technical role in shaping how we scale our AI capabil",
+  "summary": "",
+  "looking_for_candidate_description": null,
+  "education_level": null,
+  "name": "Senior Machine Learning Engineer - Applied AI & LLMs (x/f/m)",
+  "start_date": null,
+  "contract_duration_min": null,
+  "published_at": "2026-08-08T22:00:41Z",
+  "slug": "senior-machine-learning-engineer-applied-ai-llms-x-f-m_paris",
+  "recruitment_process": null,
+  "company_description": null
+ }
+}
