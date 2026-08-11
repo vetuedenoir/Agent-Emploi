@@ -122,6 +122,32 @@ class TestFailures:
         assert report.new == []
         assert any("source inconnue" in error for error in report.errors)
 
+    def test_source_without_credentials_is_skipped_once(self, wired, monkeypatch):
+        """Une source non configurée est annoncée une fois, pas à chaque requête.
+
+        Sans ce raccourci, chacune des requêtes de chaque passe produirait le
+        même message d'identifiants absents, noyant les vraies erreurs.
+        """
+        config, store = wired
+        monkeypatch.delenv("CLE_ABSENTE", raising=False)
+        monkeypatch.setattr(FakeSource, "required_env", ("CLE_ABSENTE",), raising=False)
+        FakeSource.script = {"ia": [make_job(1)], "ml": [make_job(2)]}
+
+        report = run_search(config, store)
+        assert report.new == []
+        assert FakeSource.instances == []
+        assert report.errors == ["fake: ignorée, variables absentes: CLE_ABSENTE"]
+
+    def test_configured_source_runs_normally(self, wired, monkeypatch):
+        config, store = wired
+        monkeypatch.setenv("CLE_PRESENTE", "valeur")
+        monkeypatch.setattr(FakeSource, "required_env", ("CLE_PRESENTE",), raising=False)
+        FakeSource.script = {"ia": [make_job(1)], "ml": []}
+
+        report = run_search(config, store)
+        assert len(report.new) == 1
+        assert report.errors == []
+
     def test_source_is_closed_even_on_failure(self, wired):
         config, store = wired
         FakeSource.script = {"ia": SourceError("boom"), "ml": SourceError("boom")}

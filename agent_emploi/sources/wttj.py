@@ -135,6 +135,9 @@ class WttjSource:
 
     name = "wttj"
 
+    #: Aucun compte, aucune clé : les deux services utilisés sont publics.
+    required_env: tuple[str, ...] = ()
+
     def __init__(
         self,
         client: httpx.Client | None = None,

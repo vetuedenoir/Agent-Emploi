@@ -1,0 +1,96 @@
+{
+  "resultats": [
+    {
+      "id": "187MLKQ",
+      "intitule": "Ingénieur Machine Learning (H/F)",
+      "description": "Au sein de l'équipe Data, vous concevez et déployez des modèles de machine learning en production.\n\nMissions :\n- Entraîner et évaluer des modèles (PyTorch, scikit-learn)\n- Industrialiser les pipelines de données\n- Mettre en production des LLM sur des cas d'usage internes\n\nProfil recherché : Python, deep learning, MLOps. Formation Bac+5 en intelligence artificielle.",
+      "dateCreation": "2026-08-05T09:12:34.000Z",
+      "dateActualisation": "2026-08-06T11:02:00.000Z",
+      "lieuTravail": {
+        "libelle": "75 - Paris (Dept.)",
+        "commune": "75056",
+        "codePostal": "75001"
+      },
+      "romeCode": "M1805",
+      "romeLibelle": "Études et développement informatique",
+      "entreprise": {
+        "nom": "ACME AI",
+        "description": "Éditeur de logiciels d'intelligence artificielle."
+      },
+      "typeContrat": "CDI",
+      "typeContratLibelle": "Contrat à durée indéterminée",
+      "natureContrat": "Contrat travail",
+      "experienceExige": "S",
+      "experienceLibelle": "2 An(s)",
+      "salaire": { "libelle": "Annuel de 45000.0 Euros à 55000.0 Euros sur 12 mois" },
+      "dureeTravailLibelle": "35H Travail en journée",
+      "alternance": false,
+      "secteurActiviteLibelle": "Programmation informatique",
+      "contact": {
+        "urlPostulation": "https://recrutement.acme-ai.example/offres/187MLKQ"
+      },
+      "origineOffre": {
+        "origine": "1",
+        "urlOrigine": "https://candidat.francetravail.fr/offres/recherche/detail/187MLKQ"
+      }
+    },
+    {
+      "id": "187MLKR",
+      "intitule": "Stage - Data Scientist NLP (H/F)",
+      "description": "Stage de fin d'études de 6 mois au sein du laboratoire NLP. Vous travaillerez sur l'évaluation de modèles de langage et l'annotation de corpus. Python et deep learning indispensables.",
+      "dateCreation": "2026-08-01T08:00:00.000Z",
+      "lieuTravail": { "libelle": "69 - LYON 03", "commune": "69383" },
+      "entreprise": {},
+      "typeContrat": "CDI",
+      "typeContratLibelle": "Contrat à durée indéterminée",
+      "natureContrat": "Contrat travail",
+      "alternance": false,
+      "secteurActiviteLibelle": "Recherche-développement en autres sciences",
+      "origineOffre": {
+        "origine": "2",
+        "urlOrigine": "https://www.partenaire.example/offre/187MLKR",
+        "partenaires": [
+          {
+            "nom": "APEC",
+            "url": "https://www.apec.fr",
+            "logo": "https://www.apec.fr/logo.png"
+          }
+        ]
+      }
+    },
+    {
+      "id": "187MLKS",
+      "intitule": "Alternance - Ingénieur IA générative (H/F)",
+      "description": "En alternance sur 24 mois, vous participez au développement d'assistants fondés sur des LLM : RAG, évaluation, mise en production.",
+      "dateCreation": "2026-07-28T14:30:00.000Z",
+      "lieuTravail": { "libelle": "31 - TOULOUSE" },
+      "entreprise": { "nom": "Beta Robotics" },
+      "typeContrat": "CDD",
+      "typeContratLibelle": "Contrat à durée déterminée - 24 Mois",
+      "natureContrat": "Contrat apprentissage",
+      "alternance": true,
+      "secteurActiviteLibelle": "Ingénierie, études techniques"
+    },
+    {
+      "id": "187MLKT",
+      "intitule": "Commercial secteur logiciel (H/F)",
+      "description": "Prospection et vente de solutions logicielles auprès de grands comptes.",
+      "dateCreation": "2026-08-04T07:45:00.000Z",
+      "lieuTravail": { "libelle": "33 - BORDEAUX" },
+      "entreprise": { "nom": "Gamma Software" },
+      "typeContrat": "CDI",
+      "typeContratLibelle": "Contrat à durée indéterminée",
+      "natureContrat": "Contrat travail",
+      "alternance": false
+    }
+  ],
+  "filtresPossibles": [
+    {
+      "filtre": "typeContrat",
+      "agregation": [
+        { "valeurPossible": "CDI", "nbResultats": 2 },
+        { "valeurPossible": "CDD", "nbResultats": 2 }
+      ]
+    }
+  ]
+}

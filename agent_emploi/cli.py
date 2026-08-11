@@ -126,6 +126,33 @@ def _check_providers(config: Config) -> None:
             print(f"{WARN} {provider}: {env_var} absente")
 
 
+def _check_sources(config: Config) -> bool:
+    """Sources configurées : existent-elles, et sont-elles utilisables ?
+
+    Deux situations, deux gravités. Une source dont les identifiants manquent
+    n'est pas bloquante — la passe de recherche l'ignore et interroge les
+    autres — mais elle doit se voir ici, sinon le volume d'offres baisse sans
+    explication. Une source **inconnue**, elle, est une faute de frappe dans
+    `config.yaml` : rien ne la rattrapera à l'exécution.
+    """
+    from agent_emploi.sources import REGISTRY as SOURCES, missing_env
+
+    healthy = True
+    for name in config.search.sources:
+        source_cls = SOURCES.get(name)
+        if source_cls is None:
+            known = ", ".join(sorted(SOURCES))
+            print(f"{FAIL} {name}: source inconnue (connues: {known})")
+            healthy = False
+            continue
+        absent = missing_env(source_cls)
+        if absent:
+            print(f"{WARN} {name}: {', '.join(absent)} absente(s) — source ignorée")
+        else:
+            print(f"{OK} {name}")
+    return healthy
+
+
 def cmd_doctor(config: Config) -> int:
     print("Configuration")
     print(f"{OK} config.yaml chargée et valide")
@@ -134,6 +161,9 @@ def cmd_doctor(config: Config) -> int:
 
     print("\nProfil")
     profile_ok = _check_profile(config)
+
+    print("\nSources")
+    sources_ok = _check_sources(config)
 
     print("\nModèles")
     for task, route in sorted(config.llm.tasks.items()):
@@ -147,17 +177,55 @@ def cmd_doctor(config: Config) -> int:
     tracker = BudgetTracker(config.paths.usage_file, config.budget)
     print(f"{OK} {tracker.summary()}")
 
-    if not profile_ok:
+    if not (profile_ok and sources_ok):
         print("\nAu moins un élément requis manque — voir les lignes 'ko' ci-dessus.")
         return 1
     print("\nSocle opérationnel.")
     return 0
 
 
-def cmd_search(config: Config, *, limit: int | None, dry_run: bool) -> int:
+def ask_source_credentials(config: Config, *, ask_allowed: bool = True) -> None:
+    """Propose de saisir, en début de passe, les identifiants de source absents.
+
+    Trois façons de fournir un identifiant, dans cet ordre : l'environnement,
+    `.env`, puis cette invite. La dernière existe pour la même raison que
+    `apply --login` : ne pas obliger à écrire un secret dans un fichier. Ce qui
+    est saisi ici ne vit que le temps de la commande.
+
+    L'invite n'apparaît que sur un vrai terminal. Sans elle, une passe lancée
+    par une tâche planifiée se bloquerait sur une question que personne ne lit ;
+    la source est alors simplement ignorée, comme avant.
+    """
+    from agent_emploi.sources import REGISTRY as SOURCES, missing_env, prompt_missing_env
+
+    if not ask_allowed or not sys.stdin.isatty():
+        return
+
+    for name in config.search.sources:
+        source_cls = SOURCES.get(name)
+        if source_cls is None or not missing_env(source_cls):
+            continue
+        print(
+            f"{WARN} {name}: identifiants absents. Saisissez-les pour cette "
+            "commande, ou laissez vide pour ignorer la source (Ctrl-C pour "
+            "sortir). Rien n'est écrit sur disque."
+        )
+        try:
+            prompt_missing_env(source_cls)
+        except (EOFError, KeyboardInterrupt):
+            # Renoncer à l'invite n'annule pas la passe : la source sera
+            # ignorée, et la passe le dira dans son rapport — inutile de le
+            # répéter deux fois de suite.
+            print()
+
+
+def cmd_search(
+    config: Config, *, limit: int | None, dry_run: bool, ask: bool = True
+) -> int:
     from agent_emploi.search import run_search
 
     config.paths.ensure()
+    ask_source_credentials(config, ask_allowed=ask)
     store = SeenStore(
         config.paths.seen_file, dedup_window_days=config.filters.dedup_window_days
     )
@@ -188,7 +256,9 @@ def cmd_search(config: Config, *, limit: int | None, dry_run: bool) -> int:
     return 1 if report.errors and not report.new else 0
 
 
-def cmd_screen(config: Config, *, limit: int | None, dry_run: bool) -> int:
+def cmd_screen(
+    config: Config, *, limit: int | None, dry_run: bool, ask: bool = True
+) -> int:
     """Cherche, filtre et note : la chaîne complète jusqu'au verdict d'adéquation."""
     from agent_emploi.agents.fit import FitAgent
     from agent_emploi.llm.router import Router
@@ -203,6 +273,7 @@ def cmd_screen(config: Config, *, limit: int | None, dry_run: bool) -> int:
         print(f"{FAIL} {exc}", file=sys.stderr)
         return 1
 
+    ask_source_credentials(config, ask_allowed=ask)
     store = SeenStore(
         config.paths.seen_file, dedup_window_days=config.filters.dedup_window_days
     )
@@ -653,7 +724,7 @@ def cmd_archive(
 
 
 def cmd_run(config: Config, *, limit: int | None, draft_limit: int | None,
-            dry_run: bool) -> int:
+            dry_run: bool, ask: bool = True) -> int:
     """La chaîne complète, de la recherche aux dossiers à valider. S'arrête là."""
     from agent_emploi.agents.fit import FitAgent
     from agent_emploi.agents.letter import LetterAgent
@@ -678,6 +749,7 @@ def cmd_run(config: Config, *, limit: int | None, draft_limit: int | None,
             "sonneront génériques (voir README)"
         )
 
+    ask_source_credentials(config, ask_allowed=ask)
     store = SeenStore(
         config.paths.seen_file, dedup_window_days=config.filters.dedup_window_days
     )
@@ -818,6 +890,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--config", type=Path, default=Path("config.yaml"), help="chemin de config.yaml"
+    )
+    parser.add_argument(
+        "--no-ask",
+        action="store_true",
+        help="ne demande aucun identifiant à l'invite : une source dont les "
+        "variables manquent est ignorée (utile en tâche planifiée)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="vérifie l'installation et la configuration")
@@ -993,9 +1071,13 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if args.command == "search":
-        return cmd_search(config, limit=args.limit, dry_run=args.dry_run)
+        return cmd_search(
+            config, limit=args.limit, dry_run=args.dry_run, ask=not args.no_ask
+        )
     if args.command == "screen":
-        return cmd_screen(config, limit=args.limit, dry_run=args.dry_run)
+        return cmd_screen(
+            config, limit=args.limit, dry_run=args.dry_run, ask=not args.no_ask
+        )
     if args.command == "draft":
         return cmd_draft(config, limit=args.limit, dry_run=args.dry_run)
     if args.command == "run":
@@ -1004,6 +1086,7 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.limit,
             draft_limit=args.letters,
             dry_run=args.dry_run,
+            ask=not args.no_ask,
         )
     if args.command == "archive":
         return cmd_archive(

@@ -60,12 +60,24 @@ class Site:
 
 #: Sites connus. La plupart des ATS (Greenhouse, Lever) acceptent une
 #: candidature sans compte : y ajouter une connexion n'apporterait rien.
+#:
+#: Attention à ne pas confondre les deux comptes France Travail : celui-ci est
+#: le **compte candidat** (celui de l'espace personnel), qui sert à postuler sur
+#: `candidat.francetravail.fr`. Il n'a rien à voir avec les identifiants
+#: d'application `FRANCE_TRAVAIL_CLIENT_ID` / `_CLIENT_SECRET`, qui ouvrent
+#: l'API de recherche et viennent d'un compte développeur `francetravail.io`.
 SITES: dict[str, Site] = {
     "wttj": Site(
         key="wttj",
         label="Welcome to the Jungle",
         login_url="https://www.welcometothejungle.com/fr/signin",
         domains=("welcometothejungle.com",),
+    ),
+    "france_travail": Site(
+        key="france_travail",
+        label="France Travail (espace personnel)",
+        login_url="https://candidat.francetravail.fr/espacepersonnel/",
+        domains=("francetravail.fr",),
     ),
 }
 

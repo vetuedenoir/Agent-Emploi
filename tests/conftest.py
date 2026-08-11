@@ -1,8 +1,25 @@
+from pathlib import Path
+
 import pytest
 
-from agent_emploi.config import Config
+from agent_emploi.config import Config, load_dotenv
 from agent_emploi.llm.providers.base import Completion
 from agent_emploi.profile import BannedPhrases, Profile
+
+@pytest.fixture(autouse=True)
+def dotenv_for_live_tests(request):
+    """Charge `.env` — et seulement pour les tests marqués `live`.
+
+    Ces tests-là ont besoin de vraies clés, exactement comme la CLI qui charge
+    `.env` au démarrage ; sans cela `pytest -m live` se contente de tout ignorer
+    alors que les identifiants sont là.
+
+    Les tests unitaires, eux, n'y touchent pas : ils doivent donner le même
+    résultat sur une machine configurée et sur une machine vierge.
+    """
+    if request.node.get_closest_marker("live"):
+        load_dotenv(Path(__file__).parent.parent / ".env")
+
 
 BASE_CONFIG = {
     "profile": {

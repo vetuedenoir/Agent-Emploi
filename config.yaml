@@ -14,7 +14,10 @@ paths:
   applications: applications
 
 search:
-  sources: ["wttj"]
+  # Sources interrogées, dans l'ordre. `france_travail` demande deux
+  # identifiants (voir .env.example) ; sans eux, elle est ignorée avec un
+  # avertissement et la passe continue sur les autres.
+  sources: ["wttj", "france_travail"]
   # Requêtes envoyées aux sources. Une passe par requête.
   queries:
     - "ingénieur IA"

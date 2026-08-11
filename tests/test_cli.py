@@ -1,12 +1,18 @@
 import os
 
+import pytest
 import yaml
 
 from agent_emploi.cli import main
 from tests.conftest import BASE_CONFIG
 
 
-def write_setup(tmp_path, *, cv_content: str | None = "Python, PyTorch, LLM, RAG"):
+def write_setup(
+    tmp_path,
+    *,
+    cv_content: str | None = "Python, PyTorch, LLM, RAG",
+    sources: list[str] | None = None,
+):
     """Écrit un config.yaml et un profil minimal dans tmp_path."""
     profile_dir = tmp_path / "profile"
     profile_dir.mkdir()
@@ -29,6 +35,8 @@ def write_setup(tmp_path, *, cv_content: str | None = "Python, PyTorch, LLM, RAG
             "applications": str(tmp_path / "applications"),
         },
     }
+    if sources is not None:
+        data["search"] = {**data["search"], "sources": sources}
     config_path = tmp_path / "config.yaml"
     config_path.write_text(yaml.safe_dump(data), encoding="utf-8")
     return config_path
@@ -51,6 +59,28 @@ class TestDoctor:
         assert main(["--config", str(config_path), "doctor"]) == 1
         assert "gabarit non rempli" in capsys.readouterr().out
 
+    def test_lists_sources_and_warns_on_missing_credentials(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        from agent_emploi.sources.france_travail import ENV_CLIENT_ID, ENV_CLIENT_SECRET
+
+        monkeypatch.delenv(ENV_CLIENT_ID, raising=False)
+        monkeypatch.delenv(ENV_CLIENT_SECRET, raising=False)
+        config_path = write_setup(tmp_path, sources=["wttj", "france_travail"])
+
+        # Une source non configurée n'est pas bloquante : elle sera ignorée.
+        assert main(["--config", str(config_path), "doctor"]) == 0
+        out = capsys.readouterr().out
+        assert "Sources" in out
+        assert ENV_CLIENT_ID in out
+        assert "source ignorée" in out
+
+    def test_fails_on_unknown_source(self, tmp_path, capsys):
+        # Une faute de frappe dans `config.yaml` que rien ne rattrapera ensuite.
+        config_path = write_setup(tmp_path, sources=["france_travial"])
+        assert main(["--config", str(config_path), "doctor"]) == 1
+        assert "source inconnue" in capsys.readouterr().out
+
     def test_never_prints_api_key_values(self, tmp_path, capsys, monkeypatch):
         monkeypatch.setenv("GROQ_API_KEY", "gsk-secret-value")
         config_path = write_setup(tmp_path)
@@ -62,6 +92,62 @@ class TestDoctor:
         main(["--config", str(config_path), "doctor"])
         assert (tmp_path / "data").is_dir()
         assert (tmp_path / "outbox").is_dir()
+
+
+class TestSourceCredentialPrompt:
+    """L'invite d'identifiants de source, en début de passe."""
+
+    def config_with_ft(self, tmp_path, monkeypatch):
+        from agent_emploi.sources.france_travail import ENV_CLIENT_ID, ENV_CLIENT_SECRET
+
+        monkeypatch.delenv(ENV_CLIENT_ID, raising=False)
+        monkeypatch.delenv(ENV_CLIENT_SECRET, raising=False)
+        return write_setup(tmp_path, sources=["france_travail"])
+
+    def test_prompts_on_a_terminal(self, tmp_path, monkeypatch, capsys):
+        from agent_emploi.sources.france_travail import ENV_CLIENT_ID, ENV_CLIENT_SECRET
+
+        config_path = self.config_with_ft(tmp_path, monkeypatch)
+        monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+        monkeypatch.setattr("builtins.input", lambda prompt="": "identifiant-saisi")
+        monkeypatch.setattr(
+            "agent_emploi.sources.base.getpass", lambda prompt="": "secret-saisi"
+        )
+
+        main(["--config", str(config_path), "search", "--dry-run"])
+
+        assert os.environ[ENV_CLIENT_ID] == "identifiant-saisi"
+        assert os.environ[ENV_CLIENT_SECRET] == "secret-saisi"
+        assert "secret-saisi" not in capsys.readouterr().out
+
+    def test_no_prompt_outside_a_terminal(self, tmp_path, monkeypatch):
+        """Une tâche planifiée ne doit pas se bloquer sur une question."""
+        config_path = self.config_with_ft(tmp_path, monkeypatch)
+        monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+        monkeypatch.setattr(
+            "builtins.input", lambda prompt="": pytest.fail("invite inattendue")
+        )
+
+        assert main(["--config", str(config_path), "search", "--dry-run"]) == 1
+
+    def test_no_ask_disables_the_prompt(self, tmp_path, monkeypatch, capsys):
+        config_path = self.config_with_ft(tmp_path, monkeypatch)
+        monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+        monkeypatch.setattr(
+            "builtins.input", lambda prompt="": pytest.fail("invite inattendue")
+        )
+
+        main(["--config", str(config_path), "--no-ask", "search", "--dry-run"])
+        assert "variables absentes" in capsys.readouterr().out
+
+    def test_giving_up_leaves_the_source_ignored(self, tmp_path, monkeypatch, capsys):
+        config_path = self.config_with_ft(tmp_path, monkeypatch)
+        monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+        monkeypatch.setattr("builtins.input", lambda prompt="": "")
+        monkeypatch.setattr("agent_emploi.sources.base.getpass", lambda prompt="": "")
+
+        assert main(["--config", str(config_path), "search", "--dry-run"]) == 1
+        assert "ignorée, variables absentes" in capsys.readouterr().out
 
 
 class TestConfigErrors:

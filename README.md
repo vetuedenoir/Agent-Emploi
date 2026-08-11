@@ -39,7 +39,7 @@ python -m agent_emploi apply --init-identity   # crée profile/identity.yaml
 | 5 | CLI de validation utilisateur | ✅ fait |
 | 6 | Candidature assistée (Playwright, arrêt avant envoi) | ✅ fait |
 | 7 | Archivage + boucle bout en bout | ✅ fait |
-| 8 | Source secondaire : France Travail | à faire |
+| 8 | Source secondaire : France Travail | ✅ fait |
 
 Plan détaillé : `~/.claude/plans/i-would-like-to-vast-catmull.md`
 
@@ -72,6 +72,7 @@ python -m agent_emploi review --list       # liste les dossiers en attente
 python -m agent_emploi review <réf> --approve   # décide sans passer par le menu
 python -m agent_emploi apply               # remplit les formulaires, sans envoyer
 python -m agent_emploi apply --login wttj  # se connecte d'abord au site
+python -m agent_emploi --no-ask search     # ne demande aucun identifiant à l'invite
 python -m agent_emploi apply <réf> --sent  # enregistre un envoi que vous avez fait
 python -m agent_emploi run                 # la chaîne entière, jusqu'à validation
 python -m agent_emploi run --dry-run       # idem sans rien enregistrer
@@ -260,9 +261,10 @@ vous connecter à la main dans la fenêtre, ou laisser le programme le faire :
 
 ```bash
 python -m agent_emploi apply --login wttj
+python -m agent_emploi apply --login france_travail
 ```
 
-Le mot de passe est lu dans `WTTJ_PASSWORD` (fichier `.env`, hors dépôt) ou
+Le mot de passe est lu dans `<SITE>_PASSWORD` (fichier `.env`, hors dépôt) ou
 demandé à l'invite en saisie masquée. Il ne va **ni dans `config.yaml`, ni dans
 un journal, ni dans une trace d'exception** — `apply/login.py` n'écrit aucun
 fichier, et un test le vérifie. Un captcha ou une double authentification
@@ -359,6 +361,134 @@ Aucun de ces points d'entrée n'est contractuel. `pytest -m live` vérifie qu'il
 répondent toujours — en cas d'échec, relever les nouvelles valeurs plutôt que
 contourner.
 
+## Source France Travail
+
+L'inverse de WTTJ, et c'est bien l'intérêt : une API officielle, documentée et
+versionnée, qui continuera de répondre le jour où l'index Algolia fermera.
+
+### Deux comptes France Travail, à ne pas confondre
+
+C'est le piège de cette source, et il n'a rien d'évident :
+
+| | Compte candidat | Compte développeur |
+|---|---|---|
+| Où | `francetravail.fr`, votre espace personnel | [`francetravail.io`](https://francetravail.io) |
+| À quoi il sert | **postuler** sur les offres hébergées par France Travail | **chercher** des offres via l'API |
+| Ce qu'on en tire | un e-mail et un mot de passe | un identifiant client et une clé secrète |
+| Variables | `FRANCE_TRAVAIL_EMAIL` / `_PASSWORD` | `FRANCE_TRAVAIL_CLIENT_ID` / `_CLIENT_SECRET` |
+| Où ça sert | `apply --login france_travail` (étape 6) | la source, dès `search` |
+
+**Votre compte candidat n'ouvre pas l'API.** Le compte développeur est gratuit
+et distinct : il se crée en deux minutes, on y déclare une application, on lui
+ajoute l'API « Offres d'emploi v2 », et l'on récupère les deux valeurs.
+
+### Fournir les identifiants d'API
+
+Trois façons, dans l'ordre où elles sont tentées :
+
+1. l'environnement (`export FRANCE_TRAVAIL_CLIENT_ID=…`) ;
+2. le fichier `.env`, hors dépôt ;
+3. **une saisie en début de commande**, si rien n'est trouvé :
+
+```
+$ python -m agent_emploi search
+ ⚠    france_travail: identifiants absents. Saisissez-les pour cette commande,
+      ou laissez vide pour ignorer la source. Rien n'est écrit sur disque.
+FRANCE_TRAVAIL_CLIENT_ID : PAR_agentemploi_a1b2c3
+FRANCE_TRAVAIL_CLIENT_SECRET :
+```
+
+C'est le même principe que `apply --login` : la clé secrète est saisie en
+masqué, ne vit que le temps de la commande, et n'est écrite **ni dans un
+fichier, ni dans un journal**. Elle n'est pas mémorisée d'une commande à
+l'autre — pour ne la saisir qu'une fois, mieux vaut `.env`.
+
+L'invite n'apparaît que sur un vrai terminal : sous `cron`, dans un tube ou
+avec `--no-ask`, la question n'est pas posée et la source est simplement
+ignorée — une tâche planifiée ne doit pas se bloquer sur une question que
+personne ne lira. Laisser vide, ou faire Ctrl-C, revient au même : la passe
+continue sans cette source.
+
+**Sans identifiants, la source est ignorée** — annoncée une fois dans le
+rapport de recherche, et signalée par `doctor` dans sa section « Sources ». La
+passe continue sur les autres sources : une source non configurée ne fait
+échouer personne. C'est le même mécanisme qui protège d'une faute de frappe
+dans `search.sources`, à ceci près qu'une source *inconnue*, elle, fait échouer
+`doctor` : rien ne la rattraperait à l'exécution.
+
+### Postuler sur une offre France Travail
+
+Une partie des offres se candidate sur `candidat.francetravail.fr`, qui demande
+d'être connecté. L'étape 6 sait s'y connecter comme sur WTTJ :
+
+```bash
+python -m agent_emploi apply --login france_travail
+```
+
+L'e-mail vient de `FRANCE_TRAVAIL_EMAIL` ou de l'invite, le mot de passe de
+`FRANCE_TRAVAIL_PASSWORD` ou d'une saisie masquée — jamais du disque, jamais
+d'un journal. La connexion France Travail se fait en deux écrans et demande
+souvent un code envoyé par courriel : dans ce cas le programme s'arrête et vous
+laisse finir dans la fenêtre ouverte, et la session obtenue est conservée dans
+le profil Chromium persistant comme si le programme l'avait faite. Ce n'est pas
+un échec, c'est le comportement prévu.
+
+Trois différences de fond avec WTTJ, qui se voient dans le code :
+
+1. **La recherche renvoie déjà la description.** Le découpage en deux temps
+   n'a donc rien à économiser ici : `enrich()` ne fait aucune requête quand
+   l'offre est complète, ce qui est le cas courant. Le reste du système n'a pas
+   à le savoir — l'interface est la même.
+2. **Les codes de contrat sont des référentiels**, pas des chaînes libres.
+   Plutôt que de figer `E2` ou `FS` dans le code, la source lit
+   `/referentiel/typesContrats` et `/referentiel/naturesContrats` à l'exécution
+   et apparie les libellés : « alternance » désigne apprentissage *et*
+   professionnalisation (`E2` et `FS` aujourd'hui), quels que soient leurs codes
+   du moment. Un code figé n'est utilisé qu'en dernier recours, et seulement là
+   où il est stable (`CDI`, `CDD`, `MIS`…) — un code inventé ne ferait pas
+   échouer la requête, il la viderait, ce qui est bien pire : on lirait
+   « aucune offre » là où il fallait lire « panne ».
+3. **`typeContrat` et `natureContrat` se combinent en ET.** Demander « CDI ou
+   stage » en une requête ne renvoie donc rien. Quand les contrats configurés
+   relèvent des deux familles — c'est le cas par défaut — aucun filtre de
+   contrat n'est envoyé au serveur : plus d'offres transitent, et c'est le
+   pré-filtrage local qui tranche. Le principe vaut aussi pour l'ancienneté :
+   `publieeDepuis` n'accepte que 1, 3, 7, 14 ou 31 jours, et l'on choisit
+   toujours la valeur **au-dessus** de celle demandée. Jamais de filtre serveur
+   plus strict que le filtre local, sinon des offres disparaissent en silence.
+
+Les libellés de contrat sont ramenés au vocabulaire de `config.yaml` (« CDI »,
+« Stage », « Alternance ») : laisser passer « Contrat à durée indéterminée »
+ferait rejeter par le filtre local une offre qu'il est censé accepter. Le nom
+de l'entreprise est souvent masqué sur ces offres — c'est alors le diffuseur
+(APEC, Indeed…) qui est affiché, et lui aussi qui devient l'`ats` de l'étape 6.
+
+### Le cas du stage, ou pourquoi on ne fait pas confiance aux champs
+
+Le référentiel des natures de contrat **ne contient aucun « stage »**, et les
+offres relayent l'anomalie : « Stage : Ingénieur en informatique » est publiée
+avec `typeContrat: CDI`, `natureContrat: Contrat travail`. Deux conséquences,
+toutes deux vérifiées par des tests :
+
+- **Aucun filtre serveur n'est possible sur le stage.** Toutes les offres
+  reviennent et c'est le pré-filtrage local qui tranche.
+- **Le libellé est déduit de l'intitulé**, pas des champs de contrat. Entre un
+  champ démenti par les faits et un titre explicite, le titre gagne. L'ordre
+  compte : l'alternance est testée d'abord, car elle est correctement typée
+  (`natureContrat` apprentissage ou professionnalisation) — « Stage de césure »
+  en contrat d'apprentissage est bien une alternance, pas un stage.
+
+Un test `live` échouera le jour où France Travail ajoutera une nature « stage » :
+elle serait alors plus fiable que cette heuristique, et il faudrait revenir ici.
+Même vigilance sur les libellés qui se ressemblent : « Contrat durée déterminée
+insertion » contient « durée déterminée » sans être ce qu'on entend par CDD, et
+« CDI intérimaire » n'est pas de l'intérim — ces deux-là sont explicitement
+écartés.
+
+`pytest -m live` obtient un vrai jeton et vérifie que les libellés attendus
+existent toujours dans les référentiels ; sans identifiants, ces tests sont
+ignorés plutôt qu'en échec.
+
 ## Structure
 
 ```
@@ -386,6 +516,7 @@ agent_emploi/
   apply/handoff.py  la fiche candidature.md remise quand on rend la main
   apply/runner.py   passe de candidature : remplissage, états, rapport
   sources/       wttj.py (index Algolia + API v3)
+                 france_travail.py (API officielle, OAuth2)
   store/seen.py  mémoire des offres, dédoublonnage
   store/jobs.py  offres retenues : verdict, lettre, revue, dossier
   store/archive.py  classement des candidatures closes + fiche de suivi

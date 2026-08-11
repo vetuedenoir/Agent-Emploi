@@ -13,7 +13,9 @@ grande majorité serait jetée par les filtres déterministes.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+import os
+from getpass import getpass
+from typing import Callable, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
@@ -39,6 +41,12 @@ class SearchQuery(BaseModel):
 class JobSource(Protocol):
     name: str
 
+    #: Variables d'environnement sans lesquelles la source ne peut rien faire
+    #: (identifiants d'API). Vide pour une source ouverte comme WTTJ. Elles sont
+    #: vérifiées **avant** la première requête, pour que l'absence de clé soit
+    #: signalée une fois, clairement, plutôt qu'à chaque requête de chaque passe.
+    required_env: tuple[str, ...]
+
     def search(self, query: SearchQuery) -> list[Job]:
         """Renvoie les offres correspondant aux critères, sans description."""
         ...
@@ -46,3 +54,63 @@ class JobSource(Protocol):
     def enrich(self, job: Job) -> Job:
         """Complète une offre avec sa description et son URL de candidature."""
         ...
+
+
+def missing_env(source_cls: type) -> list[str]:
+    """Variables d'environnement requises par une source, et non définies.
+
+    Sert au diagnostic (`doctor`) comme à la passe de recherche : une source mal
+    configurée est annoncée et ignorée, elle ne fait pas échouer la passe.
+    """
+    return [
+        name
+        for name in getattr(source_cls, "required_env", ())
+        if not os.environ.get(name)
+    ]
+
+
+#: Une variable dont le nom porte l'un de ces mots est saisie en masqué. La
+#: règle est volontairement grossière : mieux vaut masquer un identifiant public
+#: par excès que laisser une clé secrète s'afficher dans le terminal, puis dans
+#: l'historique de la fenêtre et dans une capture d'écran.
+_SECRET_HINTS = ("SECRET", "PASSWORD", "KEY", "TOKEN")
+
+
+def is_secret_env(name: str) -> bool:
+    """Vrai si la variable doit être saisie sans être affichée."""
+    return any(hint in name.upper() for hint in _SECRET_HINTS)
+
+
+def prompt_missing_env(
+    source_cls: type,
+    *,
+    ask: Callable[[str], str] | None = None,
+    ask_secret: Callable[[str], str] | None = None,
+) -> list[str]:
+    """Demande à l'utilisateur les identifiants absents d'une source.
+
+    Le pendant, côté sources, de ce que `apply --login` fait pour les sites :
+    ne pas obliger à écrire un secret dans un fichier. Les valeurs saisies sont
+    posées dans l'environnement du **processus courant** — elles vivent le temps
+    de la commande, ne sont jamais écrites sur disque, et ne sont pas réutilisées
+    à la session suivante.
+
+    Retourne les variables effectivement renseignées ; une saisie vide laisse la
+    variable absente, et la source sera ignorée comme si l'on n'avait rien
+    demandé — abandonner à l'invite doit rester possible.
+    """
+    # Résolues à l'appel, et non en valeurs par défaut : `input` et `getpass`
+    # doivent pouvoir être remplacés — par un test, ou par une interface qui ne
+    # serait pas un terminal.
+    ask = ask or input
+    ask_secret = ask_secret or getpass
+
+    filled: list[str] = []
+    for name in missing_env(source_cls):
+        prompt = f"{name} : "
+        value = (ask_secret(prompt) if is_secret_env(name) else ask(prompt)).strip()
+        if not value:
+            continue
+        os.environ[name] = value
+        filled.append(name)
+    return filled

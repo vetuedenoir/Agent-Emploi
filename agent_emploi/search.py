@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from agent_emploi.config import Config
 from agent_emploi.models import Job, JobState
-from agent_emploi.sources import REGISTRY, SearchQuery, SourceError
+from agent_emploi.sources import REGISTRY, SearchQuery, SourceError, missing_env
 from agent_emploi.store.seen import SeenStore
 
 logger = logging.getLogger(__name__)
@@ -56,6 +56,16 @@ def run_search(
         source_cls = REGISTRY.get(source_name)
         if source_cls is None:
             report.errors.append(f"source inconnue: {source_name}")
+            continue
+
+        # Une source sans identifiants est annoncée une fois et ignorée : sans
+        # ce test elle échouerait à chaque requête, noyant le rapport sous le
+        # même message répété. Les autres sources, elles, tournent normalement.
+        absent = missing_env(source_cls)
+        if absent:
+            report.errors.append(
+                f"{source_name}: ignorée, variables absentes: {', '.join(absent)}"
+            )
             continue
 
         source = source_cls()

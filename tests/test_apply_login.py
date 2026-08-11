@@ -25,6 +25,22 @@ from agent_emploi.apply.login import (
 SITE = SITES["wttj"]
 
 
+def test_france_travail_uses_the_candidate_account_variables():
+    """Le compte candidat n'est pas le compte développeur.
+
+    `FRANCE_TRAVAIL_EMAIL` / `_PASSWORD` ouvrent l'espace personnel pour
+    postuler ; `FRANCE_TRAVAIL_CLIENT_ID` / `_CLIENT_SECRET` ouvrent l'API de
+    recherche. Confondre les deux est l'erreur la plus facile à commettre ici.
+    """
+    from agent_emploi.sources.france_travail import ENV_CLIENT_ID, ENV_CLIENT_SECRET
+
+    site = SITES["france_travail"]
+    assert site.env_user == "FRANCE_TRAVAIL_EMAIL"
+    assert site.env_password == "FRANCE_TRAVAIL_PASSWORD"
+    assert {site.env_user, site.env_password}.isdisjoint({ENV_CLIENT_ID, ENV_CLIENT_SECRET})
+    assert "francetravail.fr" in site.login_url
+
+
 class FakeRawPage:
     """La page Playwright brute : seule la validation du formulaire y passe."""
 
