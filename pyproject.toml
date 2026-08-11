@@ -11,6 +11,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Étape 6 uniquement : les étapes 1 à 5 n'ouvrent aucun navigateur, et les
+# tests se déroulent entièrement sans Chromium.
+apply = [
+    "playwright>=1.44",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
@@ -28,5 +33,6 @@ packages = ["agent_emploi"]
 testpaths = ["tests"]
 markers = [
     "live: touche le réseau réel (désactivé par défaut)",
+    "browser: ouvre un vrai Chromium (désactivé par défaut)",
 ]
-addopts = "-m 'not live'"
+addopts = "-m 'not live and not browser'"

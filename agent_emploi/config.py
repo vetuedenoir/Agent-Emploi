@@ -23,6 +23,9 @@ class ProfileConfig(BaseModel):
     cv_en: Path
     voice: Path
     banned_phrases: Path
+    #: État civil et liens, pour remplir les formulaires à l'étape 6. Ce fichier
+    #: contient des données personnelles : il vit dans `profile/`, hors dépôt.
+    identity: Path = Path("profile/identity.yaml")
 
 
 class PathsConfig(BaseModel):
@@ -82,9 +85,29 @@ class LetterConfig(BaseModel):
     max_regenerations: int = 1
 
 
+class BrowserConfig(BaseModel):
+    """Réglages du navigateur de l'étape 6.
+
+    Le contexte est persistant : les sessions ouvertes à la main (compte
+    Greenhouse, cookies WTTJ) survivent d'une passe à l'autre, ce qui évite
+    qu'une connexion requise renvoie systématiquement en `handoff`.
+    """
+
+    user_data_dir: Path = Path("data/browser")
+    #: Faux par défaut, et c'est délibéré : l'utilisateur doit voir le
+    #: formulaire se remplir, puis le vérifier avant d'envoyer lui-même.
+    headless: bool = False
+    timeout_ms: int = 20000
+    #: Ralentit chaque action ; utile pour suivre le remplissage à l'œil.
+    slow_mo_ms: int = 0
+
+
 class ApplyConfig(BaseModel):
+    #: Le système ne clique jamais sur « envoyer ». Le réglage est conservé pour
+    #: mémoire : aucun chemin de code ne soumet, quelle que soit sa valeur.
     stop_before_submit: bool = True
     max_per_day: int = 5
+    browser: BrowserConfig = Field(default_factory=BrowserConfig)
 
 
 class ModelRef(BaseModel):

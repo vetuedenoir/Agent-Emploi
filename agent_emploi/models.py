@@ -192,6 +192,29 @@ class UserDecision(BaseModel):
     letter_edited: bool = False
 
 
+class ApplyOutcome(BaseModel):
+    """Ce qu'a donné le remplissage assisté du formulaire, à l'étape 6.
+
+    `submitted` reste faux tant que l'utilisateur n'a pas déclaré avoir envoyé
+    lui-même : aucun chemin de code ne clique sur le bouton d'envoi, donc rien
+    ne peut le passer à vrai sans une affirmation humaine.
+    """
+
+    status: Literal["prefilled", "handoff"]
+    at: datetime = Field(default_factory=utcnow)
+    apply_url: str
+    ats: str | None = None
+    #: Champs effectivement remplis, sous leur libellé affiché.
+    filled: list[str] = Field(default_factory=list)
+    #: Champs laissés à l'utilisateur parce qu'aucune donnée ne leur correspond
+    #: (cases à cocher, listes déroulantes, questions libres).
+    todo: list[str] = Field(default_factory=list)
+    #: Motif d'un `handoff` : captcha, connexion requise, champ requis inconnu.
+    blockers: list[str] = Field(default_factory=list)
+    screenshot: str | None = None
+    submitted: bool = False
+
+
 class JobRecord(BaseModel):
     """Une offre enrichie et ce qu'on en sait, dans `data/jobs.jsonl`.
 
@@ -212,6 +235,8 @@ class JobRecord(BaseModel):
     outbox: str | None = None
     #: Décision rendue à l'étape 5. Tant qu'elle est absente, rien ne part.
     decision: UserDecision | None = None
+    #: Résultat du remplissage assisté, à l'étape 6.
+    application: ApplyOutcome | None = None
     at: datetime = Field(default_factory=utcnow)
 
 

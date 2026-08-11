@@ -74,9 +74,19 @@ letter:
   max_regenerations: 1
 
 apply:
-  # Le système ne clique JAMAIS sur le bouton d'envoi final.
+  # Le système ne clique JAMAIS sur le bouton d'envoi final. Ce réglage est
+  # conservé pour mémoire : aucune fonction d'envoi n'existe dans le code.
   stop_before_submit: true
   max_per_day: 5
+  browser:
+    # Profil Chromium persistant : les sessions ouvertes (WTTJ, Greenhouse…)
+    # survivent d'une passe à l'autre.
+    user_data_dir: data/browser
+    # Faux, et délibérément : vous devez voir le formulaire avant d'envoyer.
+    headless: false
+    timeout_ms: 20000
+    # Ralentit chaque action, en millisecondes, pour suivre le remplissage.
+    slow_mo_ms: 0
 
 llm:
   # Association tâche -> modèle. `tier` sert uniquement de repère de lecture.
@@ -85,7 +95,7 @@ llm:
       tier: free
       provider: groq
       model: llama-3.3-70b-versatile
-      fallback: { provider: gemini, model: gemini-2.0-flash }
+      fallback: { provider: gemini, model: gemini-3.5-flash }
     letter:
       tier: paid
       provider: anthropic
@@ -93,7 +103,7 @@ llm:
     review:
       tier: free
       provider: gemini
-      model: gemini-2.0-flash
+      model: gemini-3.5-flash
       fallback: { provider: groq, model: llama-3.3-70b-versatile }
     form_mapping:
       tier: free

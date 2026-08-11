@@ -21,6 +21,13 @@ python -m agent_emploi doctor
 
 `doctor` liste ce qui manque : fichiers de profil, clés d'API, gabarits non remplis.
 
+Pour l'étape 6, qui pilote un navigateur :
+
+```bash
+uv pip install -e ".[apply]" && playwright install chromium
+python -m agent_emploi apply --init-identity   # crée profile/identity.yaml
+```
+
 ## Avancement
 
 | Étape | Contenu | État |
@@ -30,7 +37,7 @@ python -m agent_emploi doctor
 | 3 | Filtrage déterministe + verdict d'adéquation | ✅ fait |
 | 4 | Rédaction de la lettre + revue + choix du CV | ✅ fait |
 | 5 | CLI de validation utilisateur | ✅ fait |
-| 6 | Candidature assistée (Playwright, arrêt avant envoi) | à faire |
+| 6 | Candidature assistée (Playwright, arrêt avant envoi) | ✅ fait |
 | 7 | Archivage + boucle bout en bout | à faire |
 | 8 | Source secondaire : France Travail | à faire |
 
@@ -46,6 +53,9 @@ Plan détaillé : `~/.claude/plans/i-would-like-to-vast-catmull.md`
   blocs d'échantillons, pas sur les consignes du gabarit ; celles-ci sont
   retirées avant d'atteindre le modèle.
 - `profile/banned_phrases.txt` — déjà pré-rempli, à enrichir au fil des relectures
+- `profile/identity.yaml` — état civil et liens, pour remplir les formulaires à
+  l'étape 6. Créé par `apply --init-identity`, jamais versionné. Un champ laissé
+  vide n'est pas une erreur : il restera simplement à remplir à la main.
 
 ## Commandes
 
@@ -60,9 +70,13 @@ python -m agent_emploi draft --limit 2     # ne rédige que les 2 mieux notées
 python -m agent_emploi review              # valide les dossiers, un par un
 python -m agent_emploi review --list       # liste les dossiers en attente
 python -m agent_emploi review <réf> --approve   # décide sans passer par le menu
+python -m agent_emploi apply               # remplit les formulaires, sans envoyer
+python -m agent_emploi apply --login wttj  # se connecte d'abord au site
+python -m agent_emploi apply <réf> --sent  # enregistre un envoi que vous avez fait
 python -m agent_emploi status              # état des offres et consommation LLM
-pytest                                     # tests (réseau exclu par défaut)
+pytest                                     # tests (réseau et navigateur exclus)
 pytest -m live                             # tests de contrat sur les vraies API
+pytest -m browser                          # tests sur un vrai Chromium
 ```
 
 ## Filtrage
@@ -177,6 +191,67 @@ dans `decision.json` au sein du dossier, pour l'humain qui le rouvrira plus
 tard. Les motifs de rejet atterrissent dans `seen.jsonl` avec les rejets
 automatiques : c'est la même matière pour régler les seuils.
 
+## Candidature
+
+`apply` reprend les dossiers en `approved`, ouvre l'URL de candidature dans un
+Chromium visible, remplit ce qu'il sait remplir, prend une capture — et
+s'arrête. Les onglets restent ouverts : vous vérifiez, vous complétez, vous
+envoyez.
+
+**Aucune fonction d'envoi n'existe dans le code.** Ce n'est pas un réglage
+qu'on pourrait inverser par erreur : `apply/browser.py` n'expose ni `submit` ni
+`click`, et un test le vérifie à chaque passe. `apply.stop_before_submit` reste
+dans `config.yaml` pour mémoire, sans effet.
+
+L'appariement des champs est déterministe (`apply/fields.py`) : un tableau de
+motifs sur le libellé, le `name`, l'`id` et le `placeholder`. Savoir que
+« Prénom » attend un prénom ne justifie pas un appel LLM, et un tableau ne se
+trompe pas deux fois de la même façon. Trois règles de prudence :
+
+- **Les cases à cocher et les listes déroulantes ne sont jamais remplies**,
+  même reconnues. Consentement RGPD, disponibilité, autorisation de travail :
+  ce sont des déclarations, elles vous appartiennent — vous êtes devant
+  l'écran. Elles apparaissent dans les « à faire ».
+- **Un champ obligatoire non reconnu annule tout le remplissage.** Un
+  formulaire à moitié rempli qu'on ne peut pas finir est plus déroutant qu'une
+  page vierge accompagnée de la fiche.
+- **La lettre et le CV viennent du dossier `outbox/`**, pas de la base : c'est
+  la version que vous avez relue, corrections comprises, qui part.
+
+| Issue | État | Ce que vous trouvez |
+|---|---|---|
+| formulaire rempli | `prefilled` | l'onglet ouvert, `formulaire.png`, `candidature.md` |
+| main rendue | `handoff` | `candidature.md` : URL directe, valeurs à recopier, lettre entière |
+
+Captcha, connexion requise, formulaire méconnaissable, page inaccessible :
+autant de `handoff`. Ce n'est pas un incident, c'est le fonctionnement normal
+d'un système qui refuse de deviner — et jamais un blocage silencieux, la fiche
+contient de quoi candidater à la main en cinq minutes.
+
+`apply` ne fait pas passer une offre en `submitted` : le programme n'envoie
+rien, il ne peut donc que prendre acte. Une fois la candidature envoyée de
+votre main, `apply <réf> --sent` l'enregistre.
+
+### Connexion aux sites
+
+Le contexte Chromium est persistant (`apply.browser.user_data_dir`) : une
+session ouverte une fois est conservée d'une passe à l'autre. Vous pouvez donc
+vous connecter à la main dans la fenêtre, ou laisser le programme le faire :
+
+```bash
+python -m agent_emploi apply --login wttj
+```
+
+Le mot de passe est lu dans `WTTJ_PASSWORD` (fichier `.env`, hors dépôt) ou
+demandé à l'invite en saisie masquée. Il ne va **ni dans `config.yaml`, ni dans
+un journal, ni dans une trace d'exception** — `apply/login.py` n'écrit aucun
+fichier, et un test le vérifie. Un captcha ou une double authentification
+interrompt la tentative et vous laisse finir dans la fenêtre ouverte : la
+session ainsi obtenue est conservée comme si le programme l'avait faite.
+
+La plupart des ATS (Greenhouse, Lever) acceptent une candidature sans compte :
+la connexion ne sert que là où elle est exigée.
+
 ## Source Welcome to the Jungle
 
 Deux services publics, aucun compte requis :
@@ -208,7 +283,7 @@ contourner.
 agent_emploi/
   models.py      Job, JobState, machine à états, identifiants
   config.py      chargement et validation de config.yaml, lecture de .env
-  cli.py         doctor / search / screen / draft / review / status
+  cli.py         doctor / search / screen / draft / review / apply / status
   search.py      passe de recherche : découverte et mémorisation
   filters.py     pré-filtrage déterministe, score lexical CV <-> offre
   screen.py      passe de filtrage : filtres -> enrichissement -> fit-check
@@ -219,11 +294,17 @@ agent_emploi/
   agents/fit.py     verdict d'adéquation (LLM, tier gratuit)
   agents/letter.py  rédaction de la lettre (LLM, tier payant)
   agents/review.py  relecture de la lettre (LLM, tier gratuit)
+  apply/fields.py   appariement champ <-> information (aucun navigateur)
+  apply/identity.py état civil, lu dans profile/identity.yaml
+  apply/browser.py  Playwright, contexte persistant — aucune fonction d'envoi
+  apply/login.py    connexion aux sites, mot de passe jamais écrit sur disque
+  apply/handoff.py  la fiche candidature.md remise quand on rend la main
+  apply/runner.py   passe de candidature : remplissage, états, rapport
   sources/       wttj.py (index Algolia + API v3)
   store/seen.py  mémoire des offres, dédoublonnage
   store/jobs.py  offres retenues : verdict, lettre, revue, dossier
   llm/           routeur, budget, fournisseurs (anthropic, groq, gemini)
 config.yaml      tout le réglable : requêtes, filtres, modèles, plafonds
-profile/         CV, voix, formules interdites
-data/            seen.jsonl, jobs.jsonl, llm_usage.jsonl (non versionnés)
+profile/         CV, voix, formules interdites, état civil
+data/            seen.jsonl, jobs.jsonl, llm_usage.jsonl, browser/ (non versionnés)
 ```
