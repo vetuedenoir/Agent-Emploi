@@ -38,7 +38,7 @@ python -m agent_emploi apply --init-identity   # crée profile/identity.yaml
 | 4 | Rédaction de la lettre + revue + choix du CV | ✅ fait |
 | 5 | CLI de validation utilisateur | ✅ fait |
 | 6 | Candidature assistée (Playwright, arrêt avant envoi) | ✅ fait |
-| 7 | Archivage + boucle bout en bout | à faire |
+| 7 | Archivage + boucle bout en bout | ✅ fait |
 | 8 | Source secondaire : France Travail | à faire |
 
 Plan détaillé : `~/.claude/plans/i-would-like-to-vast-catmull.md`
@@ -73,6 +73,11 @@ python -m agent_emploi review <réf> --approve   # décide sans passer par le me
 python -m agent_emploi apply               # remplit les formulaires, sans envoyer
 python -m agent_emploi apply --login wttj  # se connecte d'abord au site
 python -m agent_emploi apply <réf> --sent  # enregistre un envoi que vous avez fait
+python -m agent_emploi run                 # la chaîne entière, jusqu'à validation
+python -m agent_emploi run --dry-run       # idem sans rien enregistrer
+python -m agent_emploi run --letters 2     # borne la seule étape payante
+python -m agent_emploi archive             # classe les candidatures envoyées
+python -m agent_emploi archive --dry-run   # liste sans rien déplacer
 python -m agent_emploi status              # état des offres et consommation LLM
 pytest                                     # tests (réseau et navigateur exclus)
 pytest -m live                             # tests de contrat sur les vraies API
@@ -244,7 +249,8 @@ contient de quoi candidater à la main en cinq minutes.
 
 `apply` ne fait pas passer une offre en `submitted` : le programme n'envoie
 rien, il ne peut donc que prendre acte. Une fois la candidature envoyée de
-votre main, `apply <réf> --sent` l'enregistre.
+votre main, `apply <réf> --sent` l'enregistre — et c'est cette déclaration qui
+rend le dossier archivable.
 
 ### Connexion aux sites
 
@@ -265,6 +271,68 @@ session ainsi obtenue est conservée comme si le programme l'avait faite.
 
 La plupart des ATS (Greenhouse, Lever) acceptent une candidature sans compte :
 la connexion ne sert que là où elle est exigée.
+
+## La boucle
+
+`run` enchaîne en une commande ce que l'on lançait passe par passe :
+
+```
+recherche → filtrage → fit-check → lettre → revue → dossier → arrêt
+```
+
+Le point d'arrêt n'est pas un réglage, c'est la conception : la boucle mène les
+offres jusqu'à `awaiting_user` et s'y tient. Elle n'appelle ni `review`, qui
+demande une décision humaine, ni `apply`, qui ouvre un navigateur —
+`manager.py` n'importe rien de `apply/`, et un test le vérifie.
+
+Rien n'y est réimplémenté : chaque étape est la passe existante, appelée dans
+l'ordre avec son propre rapport. Une interruption — plafond de budget,
+fournisseur en panne — arrête la boucle proprement et laisse chaque offre où
+elle en est ; la relance reprend au même point.
+
+Deux limites distinctes, parce que les étapes n'ont pas le même coût :
+`--limit` borne la recherche (offres par requête et par source), `--letters`
+borne la rédaction, seule étape payante, qui suit `apply.max_per_day` par
+défaut.
+
+`--dry-run` déroule la chaîne entière sans rien écrire. Les appels LLM ont bien
+lieu — c'est le seul moyen de voir ce que la chaîne produit — mais comme le
+filtrage ne persiste rien, la rédaction reprend ses offres directement dans le
+rapport du filtrage plutôt que dans `jobs.jsonl`. Sans cela une passe à blanc
+s'arrêterait au filtrage et ne montrerait jamais de lettre.
+
+## Archivage
+
+Une candidature envoyée n'a plus rien à faire dans `outbox/`, qui est la pile
+des dossiers en cours. `archive` la déplace vers `applications/`, pièces
+comprises :
+
+```
+applications/2026-08-11_acme-ai_stage-ingenieur-ia-generative/
+  README.md     la fiche de suivi — relance, réponse, entretien
+  lettre.md     la lettre telle qu'elle est partie
+  cv.pdf        le CV joint
+  offre.md      l'annonce, fit.json, review.json, decision.json…
+```
+
+Deux destinations, deux publics : `seen.jsonl` garde l'état final et son motif,
+ce qui empêche de retraiter une offre et sert à régler les seuils ;
+`applications/` garde le dossier lisible, pour vous.
+
+- **Seul un envoi déclaré ferme une candidature.** `prefilled` et `handoff` ne
+  sont pas des fins : la main est encore à vous. C'est `apply <réf> --sent` qui
+  clôt le dossier, et donc lui seul qui le rend archivable. `--include-rejected`
+  classe aussi les dossiers que vous avez rejetés avant envoi.
+- **`README.md` n'est jamais réécrit.** Le programme l'écrit une fois — avec la
+  date d'envoi, une date de relance à J+14, les liens et le verdict — puis n'y
+  touche plus : une relance notée à la main ne doit pas disparaître à la passe
+  suivante.
+- **La copie précède le retrait.** Le dossier d'origine n'est supprimé qu'une
+  fois toutes ses pièces recopiées ; une interruption le laisse au pire aux deux
+  endroits, jamais à aucun. `--keep` conserve la copie dans `outbox/`.
+
+L'archivage ne change aucun état : c'est un rangement de fichiers, pas une
+transition. `run` en fait une passe à la fin de chaque boucle.
 
 ## Source Welcome to the Jungle
 
@@ -297,7 +365,9 @@ contourner.
 agent_emploi/
   models.py      Job, JobState, machine à états, identifiants
   config.py      chargement et validation de config.yaml, lecture de .env
-  cli.py         doctor / search / screen / draft / review / apply / status
+  cli.py         doctor / search / screen / draft / review / apply / run /
+                 archive / status
+  manager.py     la boucle bout en bout, jusqu'à votre validation — et pas plus
   search.py      passe de recherche : découverte et mémorisation
   filters.py     pré-filtrage déterministe, score lexical CV <-> offre
   screen.py      passe de filtrage : filtres -> enrichissement -> fit-check
@@ -318,8 +388,11 @@ agent_emploi/
   sources/       wttj.py (index Algolia + API v3)
   store/seen.py  mémoire des offres, dédoublonnage
   store/jobs.py  offres retenues : verdict, lettre, revue, dossier
+  store/archive.py  classement des candidatures closes + fiche de suivi
   llm/           routeur, budget, fournisseurs (anthropic, groq, gemini)
 config.yaml      tout le réglable : requêtes, filtres, modèles, plafonds
 profile/         CV, voix, formules interdites, état civil
+outbox/          dossiers en cours, en attente de décision ou d'envoi
+applications/    candidatures closes, avec leur fiche de suivi
 data/            seen.jsonl, jobs.jsonl, llm_usage.jsonl, browser/ (non versionnés)
 ```

@@ -185,15 +185,24 @@ def run_draft(
     review_agent: ReviewAgent,
     limit: int | None = None,
     record: bool = True,
+    candidates: list[JobRecord] | None = None,
 ) -> DraftReport:
     """Prépare les dossiers des offres retenues.
 
     `record=False` fait une passe à blanc : les appels LLM ont bien lieu (c'est
     le seul moyen de juger une lettre), mais ni la mémoire, ni `jobs.jsonl`, ni
     `outbox/` ne sont touchés.
+
+    `candidates` court-circuite la sélection dans les mémoires. C'est ce dont a
+    besoin une passe à blanc enchaînée : le filtrage n'y a rien persisté, donc
+    les offres qu'il vient de retenir n'existent nulle part ailleurs que dans
+    son rapport.
     """
     report = DraftReport()
-    candidates = select_candidates(job_store, seen, limit=limit)
+    if candidates is None:
+        candidates = select_candidates(job_store, seen, limit=limit)
+    elif limit is not None:
+        candidates = candidates[:limit]
     report.candidates = len(candidates)
     consecutive_failures = 0
 

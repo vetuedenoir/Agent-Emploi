@@ -237,6 +237,9 @@ class JobRecord(BaseModel):
     decision: UserDecision | None = None
     #: Résultat du remplissage assisté, à l'étape 6.
     application: ApplyOutcome | None = None
+    #: Dossier d'archive `applications/`, une fois la candidature classée. Sa
+    #: présence signale que l'offre est sortie du flux courant.
+    archive: str | None = None
     at: datetime = Field(default_factory=utcnow)
 
 

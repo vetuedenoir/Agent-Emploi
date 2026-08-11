@@ -79,6 +79,7 @@ class JobStore:
         outbox: str | None = None,
         decision: UserDecision | None = None,
         application: ApplyOutcome | None = None,
+        archive: str | None = None,
     ) -> JobRecord:
         """Écrit ou met à jour une offre. Les champs non fournis sont conservés.
 
@@ -104,6 +105,7 @@ class JobStore:
             outbox=keep(outbox, "outbox"),
             decision=keep(decision, "decision"),
             application=keep(application, "application"),
+            archive=keep(archive, "archive"),
         )
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as handle:

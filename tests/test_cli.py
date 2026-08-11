@@ -294,6 +294,99 @@ class TestApply:
         assert SeenStore(config.paths.seen_file).get(job.id).state is JobState.SUBMITTED
 
 
+class TestArchive:
+    """Le classement des candidatures closes, une fois l'envoi déclaré."""
+
+    def sent_bundle(self, tmp_path, config_path):
+        """Une candidature menée jusqu'à l'envoi déclaré par l'utilisateur."""
+        from agent_emploi.config import load_config
+        from agent_emploi.models import ApplyOutcome, JobState
+        from agent_emploi.store.jobs import JobStore
+        from agent_emploi.store.seen import SeenStore
+
+        job, directory = TestReview.stage_bundle(self, tmp_path, config_path)
+        main(["--config", str(config_path), "review", job.id[:8], "--approve"])
+
+        config = load_config(config_path)
+        JobStore(config.paths.jobs_file).save(
+            job,
+            application=ApplyOutcome(
+                status="prefilled", apply_url="https://ats/x", submitted=True
+            ),
+        )
+        seen = SeenStore(config.paths.seen_file)
+        seen.transition(job.id, JobState.PREFILLED)
+        seen.transition(job.id, JobState.SUBMITTED, "utilisateur:envoyé")
+        return job, directory
+
+    def test_rien_a_archiver_sans_envoi_declare(self, tmp_path, capsys):
+        config_path = write_setup(tmp_path)
+        TestReview.stage_bundle(self, tmp_path, config_path)
+        capsys.readouterr()
+
+        assert main(["--config", str(config_path), "archive"]) == 0
+        assert "Aucune candidature à archiver" in capsys.readouterr().out
+
+    def test_classe_la_candidature_envoyee(self, tmp_path, capsys):
+        config_path = write_setup(tmp_path)
+        _, directory = self.sent_bundle(tmp_path, config_path)
+        capsys.readouterr()
+
+        assert main(["--config", str(config_path), "archive"]) == 0
+        out = capsys.readouterr().out
+        assert "1 candidature(s) archivée(s)" in out
+        assert not directory.exists()
+
+        archived = list((tmp_path / "applications").iterdir())
+        assert len(archived) == 1
+        assert (archived[0] / "README.md").exists()
+        assert (archived[0] / "lettre.md").exists()
+
+    def test_passe_a_blanc_ne_deplace_rien(self, tmp_path, capsys):
+        config_path = write_setup(tmp_path)
+        _, directory = self.sent_bundle(tmp_path, config_path)
+        capsys.readouterr()
+
+        assert main(["--config", str(config_path), "archive", "--dry-run"]) == 0
+        assert "rien n'a été déplacé" in capsys.readouterr().out
+        assert directory.exists()
+        assert not any((tmp_path / "applications").iterdir())
+
+
+class TestRun:
+    """La boucle bout en bout : elle s'arrête à la validation, sans navigateur."""
+
+    def test_fails_without_cv(self, tmp_path, capsys):
+        config_path = write_setup(tmp_path, cv_content=None)
+        assert main(["--config", str(config_path), "run"]) == 1
+        assert "CV texte introuvable" in capsys.readouterr().err
+
+    def test_source_injoignable_ne_casse_pas_la_boucle(self, tmp_path, capsys,
+                                                       monkeypatch):
+        """La source échoue, la boucle va au bout et le signale — code 1."""
+        monkeypatch.setattr("agent_emploi.search.REGISTRY", {})
+        config_path = write_setup(tmp_path)
+
+        assert main(["--config", str(config_path), "run"]) == 1
+
+        out = capsys.readouterr().out
+        assert "source inconnue" in out
+        assert "Aucun dossier en attente" in out
+        assert "Consommation LLM" in out
+
+    def test_annonce_les_dossiers_a_valider(self, tmp_path, capsys, monkeypatch):
+        monkeypatch.setattr("agent_emploi.search.REGISTRY", {})
+        config_path = write_setup(tmp_path)
+        TestReview.stage_bundle(self, tmp_path, config_path)
+        capsys.readouterr()
+
+        main(["--config", str(config_path), "run"])
+
+        out = capsys.readouterr().out
+        assert "1 dossier(s) attendent votre validation" in out
+        assert "python -m agent_emploi review" in out
+
+
 class TestLoadDotenv:
     """Les clés d'API vivent dans `.env` ; `config.yaml` n'en contient aucune."""
 

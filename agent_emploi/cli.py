@@ -9,7 +9,11 @@ rédaction, validation, puis candidature.
     python -m agent_emploi draft     # rédige les lettres et prépare outbox/
     python -m agent_emploi review    # soumet les dossiers à votre validation
     python -m agent_emploi apply     # remplit les formulaires, sans jamais envoyer
+    python -m agent_emploi archive   # classe les candidatures envoyées
     python -m agent_emploi status    # état des offres et consommation LLM
+
+`run` enchaîne recherche, filtrage, rédaction et archivage en une commande, et
+s'arrête à votre validation : elle n'ouvre aucun navigateur et n'envoie rien.
 """
 
 from __future__ import annotations
@@ -603,6 +607,155 @@ def cmd_apply(
     return 1 if report.errors and not report.prepared else 0
 
 
+def cmd_archive(
+    config: Config, *, dry_run: bool, include_rejected: bool, keep: bool
+) -> int:
+    """Range les candidatures closes dans `applications/`, avec fiche de suivi."""
+    from agent_emploi.store.archive import FOLLOWUP_FILE, run_archive
+    from agent_emploi.store.jobs import JobStore
+
+    config.paths.ensure()
+    store = SeenStore(
+        config.paths.seen_file, dedup_window_days=config.filters.dedup_window_days
+    )
+    job_store = JobStore(config.paths.jobs_file)
+
+    report = run_archive(
+        config,
+        seen=store,
+        job_store=job_store,
+        record=not dry_run,
+        include_rejected=include_rejected,
+        move=not keep,
+    )
+
+    for error in report.errors:
+        print(f"{WARN} {error}")
+
+    if not report.archived:
+        print(
+            "Aucune candidature à archiver — une candidature se classe une fois "
+            "déclarée envoyée (`apply <réf> --sent`)."
+        )
+        return 1 if report.errors else 0
+
+    print(f"{len(report.archived)} candidature(s) archivée(s) :")
+    for item in report.archived:
+        print(f"\n  {item.label}")
+        print(f"    {item.directory}")
+        if item.moved:
+            print("    (retirée de outbox/)")
+    print(f"\nLe suivi se tient dans `{FOLLOWUP_FILE}` de chaque dossier — "
+          "relance, réponse, entretien. Le programme ne le réécrit jamais.")
+    if dry_run:
+        print("(passe à blanc — rien n'a été déplacé)")
+    return 1 if report.errors else 0
+
+
+def cmd_run(config: Config, *, limit: int | None, draft_limit: int | None,
+            dry_run: bool) -> int:
+    """La chaîne complète, de la recherche aux dossiers à valider. S'arrête là."""
+    from agent_emploi.agents.fit import FitAgent
+    from agent_emploi.agents.letter import LetterAgent
+    from agent_emploi.agents.review import ReviewAgent
+    from agent_emploi.llm.router import Router
+    from agent_emploi.manager import run_pipeline
+    from agent_emploi.profile import Profile
+    from agent_emploi.screen import load_cv_text
+    from agent_emploi.store.jobs import JobStore
+
+    config.paths.ensure()
+    try:
+        cv_text = load_cv_text(config)
+        profile = Profile.load(config)
+    except FileNotFoundError as exc:
+        print(f"{FAIL} {exc}", file=sys.stderr)
+        return 1
+
+    if not profile.has_voice:
+        print(
+            f"{WARN} {config.profile.voice} vide ou non rempli — les lettres "
+            "sonneront génériques (voir README)"
+        )
+
+    store = SeenStore(
+        config.paths.seen_file, dedup_window_days=config.filters.dedup_window_days
+    )
+    job_store = JobStore(config.paths.jobs_file)
+    router = Router(config)
+
+    report = run_pipeline(
+        config,
+        seen=store,
+        job_store=job_store,
+        profile=profile,
+        cv_text=cv_text,
+        fit_agent=FitAgent(router, cv_text, config.fit),
+        letter_agent=LetterAgent(router, profile, config.letter),
+        review_agent=ReviewAgent(router, profile),
+        limit=limit,
+        draft_limit=draft_limit,
+        record=not dry_run,
+    )
+
+    for error in report.errors[:5]:
+        print(f"{WARN} {error}")
+    if len(report.errors) > 5:
+        print(f"{WARN} (+{len(report.errors) - 5} autres erreurs)")
+
+    if report.search is not None:
+        print(
+            f"Recherche : {report.search.found} résultats bruts, "
+            f"{len(report.search.new)} nouvelles offres"
+        )
+    if report.screen is not None:
+        screen = report.screen
+        print(
+            f"Filtrage  : {screen.examined} examinées, {screen.prescreened} "
+            f"pré-retenues, {screen.evaluated} évaluées, "
+            f"{len(screen.accepted)} retenues"
+        )
+    else:
+        print("Filtrage  : aucune offre nouvelle à filtrer")
+    if report.draft is not None:
+        draft = report.draft
+        print(
+            f"Rédaction : {draft.candidates} offres en attente de lettre, "
+            f"{draft.generated} lettres générées, "
+            f"{len(draft.prepared)} dossiers préparés"
+        )
+    if report.archive is not None and report.archive.archived:
+        print(f"Archivage : {len(report.archive.archived)} candidature(s) classée(s)")
+
+    if report.stopped:
+        print(f"\n{WARN} boucle interrompue — {report.stopped}")
+        print("  Les offres non traitées restent en place : relancez plus tard.")
+    if dry_run:
+        print("\n(passe à blanc — les appels LLM ont eu lieu, rien n'a été écrit)")
+
+    for item in report.draft.prepared if report.draft else []:
+        fit = item.record.fit
+        score = f"{fit.score:>3}" if fit else "  ?"
+        print(f"\n  [{score}] {item.record.job.title}")
+        print(f"    {item.record.job.company} · {item.directory}")
+        for warning in item.warnings:
+            print(f"{WARN} {warning}")
+
+    if report.awaiting:
+        print(
+            f"\n{len(report.awaiting)} dossier(s) attendent votre validation. "
+            "Rien n'a été envoyé."
+        )
+        print("  python -m agent_emploi review")
+    else:
+        print("\nAucun dossier en attente.")
+
+    tracker = BudgetTracker(config.paths.usage_file, config.budget)
+    print(f"\nConsommation LLM — {tracker.summary()}")
+
+    return 1 if report.errors and not report.prepared else 0
+
+
 def cmd_status(config: Config) -> int:
     store = SeenStore(config.paths.seen_file, dedup_window_days=config.filters.dedup_window_days)
     print(f"Offres connues: {len(store)}")
@@ -647,6 +800,12 @@ def cmd_status(config: Config) -> int:
                 print(f"\n{label}: {len(paths)}")
                 for path in paths[:5]:
                     print(f"  {path}")
+
+        archived = [record for record in retained.records() if record.archive]
+        if archived:
+            print(f"\nCandidatures archivées: {len(archived)}")
+            for record in archived[-5:]:
+                print(f"  {record.archive}")
 
     tracker = BudgetTracker(config.paths.usage_file, config.budget)
     print(f"\nConsommation LLM — {tracker.summary()}")
@@ -729,6 +888,46 @@ def main(argv: list[str] | None = None) -> int:
         "--note", default=None, help="motif de rejet ou remarque, joint à la décision"
     )
 
+    run_cmd = sub.add_parser(
+        "run",
+        help="chaîne complète : recherche, filtrage, rédaction, dossiers "
+        "(s'arrête à votre validation, n'ouvre aucun navigateur)",
+    )
+    run_cmd.add_argument(
+        "--limit", type=int, default=None, help="offres visées par requête et par source"
+    )
+    run_cmd.add_argument(
+        "--letters",
+        type=int,
+        default=None,
+        help="nombre de lettres à rédiger (défaut: apply.max_per_day)",
+    )
+    run_cmd.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="n'écrit rien (les appels LLM ont bien lieu)",
+    )
+
+    archive_cmd = sub.add_parser(
+        "archive",
+        help="classe les candidatures envoyées dans applications/, avec fiche de suivi",
+    )
+    archive_cmd.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="liste ce qui serait classé sans rien déplacer",
+    )
+    archive_cmd.add_argument(
+        "--include-rejected",
+        action="store_true",
+        help="archive aussi les dossiers que vous avez rejetés avant envoi",
+    )
+    archive_cmd.add_argument(
+        "--keep",
+        action="store_true",
+        help="laisse une copie du dossier dans outbox/ au lieu de l'y retirer",
+    )
+
     apply_cmd = sub.add_parser(
         "apply",
         help="remplit les formulaires des dossiers approuvés (sans jamais envoyer)",
@@ -799,6 +998,20 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_screen(config, limit=args.limit, dry_run=args.dry_run)
     if args.command == "draft":
         return cmd_draft(config, limit=args.limit, dry_run=args.dry_run)
+    if args.command == "run":
+        return cmd_run(
+            config,
+            limit=args.limit,
+            draft_limit=args.letters,
+            dry_run=args.dry_run,
+        )
+    if args.command == "archive":
+        return cmd_archive(
+            config,
+            dry_run=args.dry_run,
+            include_rejected=args.include_rejected,
+            keep=args.keep,
+        )
     if args.command == "review":
         if args.approve and args.reject:
             print(f"{FAIL} --approve et --reject s'excluent", file=sys.stderr)
