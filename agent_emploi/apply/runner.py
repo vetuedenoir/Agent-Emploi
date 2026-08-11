@@ -29,9 +29,10 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from agent_emploi.apply.browser import Page
-from agent_emploi.apply.fields import Plan, Slot, build_plan
+from agent_emploi.apply.fields import FormField, Plan, Slot, build_plan
 from agent_emploi.apply.handoff import SCREENSHOT_FILE, write_handoff
 from agent_emploi.apply.identity import Identity
 from agent_emploi.config import Config
@@ -45,6 +46,11 @@ logger = logging.getLogger(__name__)
 #: Un formulaire de candidature qui expose plus de champs que cela n'en est
 #: plus un : page de recherche, tableau de bord, mur de connexion.
 MAX_FIELDS = 40
+
+#: Recours d'appariement : (champs, emplacements disponibles, id de l'offre)
+#: -> {sélecteur: emplacement}. Injecté plutôt qu'importé, pour que la passe
+#: se déroule à l'identique sans LLM (voir `mapping.guess_slots`).
+Guess = Callable[[list[FormField], list[Slot], str], dict[str, Slot]]
 
 
 @dataclass
@@ -154,13 +160,21 @@ def fill_form(page: Page, plan: Plan) -> tuple[list[str], list[str]]:
 
 
 def prepare(
-    record: JobRecord, page: Page, values: dict[Slot, str], directory: Path
+    record: JobRecord,
+    page: Page,
+    values: dict[Slot, str],
+    directory: Path,
+    *,
+    guess: Guess | None = None,
 ) -> tuple[ApplyOutcome, Plan | None]:
     """Remplit le formulaire d'une offre et rend son issue.
 
     L'ordre est celui de la prudence : les blocages sont cherchés avant le
     remplissage — inutile de poser un nom et un téléphone sur une page qui
     exige d'abord une connexion.
+
+    `guess` n'est sollicité que si les motifs ont laissé un champ obligatoire
+    sans réponse : tant que le déterministe suffit, aucun appel LLM n'a lieu.
     """
     job = record.job
     apply_url = job.apply_url or str(job.url)
@@ -190,6 +204,18 @@ def prepare(
         )
 
     plan = build_plan(fields, values)
+    if not plan.ok and guess is not None:
+        # Les motifs ont buté sur un libellé inattendu. Un appel du tier
+        # gratuit peut encore rattacher ces champs — sans jamais fournir de
+        # valeur, seulement en désignant l'information attendue.
+        assigned = {item.slot for item in plan.assignments}
+        available = [
+            slot for slot in values if slot is not Slot.CV and slot not in assigned
+        ]
+        overrides = guess(fields, available, job.id)
+        if overrides:
+            plan = build_plan(fields, values, overrides)
+
     if not plan.ok:
         # Un champ obligatoire qu'on ne sait pas remplir : on ne remplit rien
         # du tout. Un formulaire à moitié rempli qu'on ne peut pas terminer est
@@ -220,12 +246,16 @@ def run_apply(
     limit: int | None = None,
     record: bool = True,
     only: str | None = None,
+    guess: Guess | None = None,
 ) -> ApplyReport:
     """Prépare les candidatures approuvées, sans jamais en envoyer aucune.
 
     `record=False` fait une passe à blanc : le navigateur ouvre bien les
     formulaires et les remplit — c'est le seul moyen de voir ce que ça donne —
     mais ni la mémoire, ni `jobs.jsonl`, ni les dossiers ne sont touchés.
+
+    `guess=None` désactive le recours LLM : la passe se déroule alors
+    entièrement sur les motifs déterministes.
     """
     report = ApplyReport()
     candidates = select_candidates(job_store, seen, limit=limit)
@@ -267,7 +297,7 @@ def run_apply(
             )
             plan = None
         else:
-            outcome, plan = prepare(job_record, page, values, directory)
+            outcome, plan = prepare(job_record, page, values, directory, guess=guess)
 
         item = PreparedApplication(
             record=job_record, directory=directory, outcome=outcome

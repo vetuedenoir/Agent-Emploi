@@ -455,12 +455,15 @@ def cmd_apply(
     init_identity: bool,
     sent: bool,
     note: str | None,
+    no_llm: bool = False,
 ) -> int:
     """Remplit les formulaires des dossiers approuvés. N'envoie jamais rien."""
     from agent_emploi.apply.browser import BrowserUnavailable, launch
     from agent_emploi.apply.identity import Identity
     from agent_emploi.apply.login import sign_in_sites
+    from agent_emploi.apply.mapping import guess_slots
     from agent_emploi.apply.runner import mark_submitted, run_apply, select_candidates
+    from agent_emploi.llm.router import Router
     from agent_emploi.store.jobs import JobStore
 
     config.paths.ensure()
@@ -523,6 +526,15 @@ def cmd_apply(
         print("Aucun dossier approuvé — lancer `review` pour en valider.")
         return 0
 
+    # Le recours d'appariement n'est construit que s'il est autorisé ; il n'est
+    # sollicité que sur un formulaire que les motifs n'ont pas su remplir.
+    guess = None
+    if not no_llm:
+        router = Router(config)
+        guess = lambda fields, available, job_id: guess_slots(  # noqa: E731
+            router, fields, available, job_id=job_id
+        )
+
     try:
         with launch(config.apply.browser) as browser:
             if login:
@@ -541,6 +553,7 @@ def cmd_apply(
                 limit=limit if limit is not None else config.apply.max_per_day,
                 record=not dry_run,
                 only=ref,
+                guess=guess,
             )
 
             for error in report.errors:
@@ -747,6 +760,12 @@ def main(argv: list[str] | None = None) -> int:
         "et n'est jamais écrit sur disque",
     )
     apply_cmd.add_argument(
+        "--no-llm",
+        action="store_true",
+        help="n'appelle aucun modèle : un libellé non reconnu par les motifs "
+        "renvoie directement la main",
+    )
+    apply_cmd.add_argument(
         "--init-identity",
         action="store_true",
         help="écrit le gabarit profile/identity.yaml et s'arrête",
@@ -801,6 +820,7 @@ def main(argv: list[str] | None = None) -> int:
             init_identity=args.init_identity,
             sent=args.sent,
             note=args.note,
+            no_llm=args.no_llm,
         )
     return {"doctor": cmd_doctor, "status": cmd_status}[args.command](config)
 

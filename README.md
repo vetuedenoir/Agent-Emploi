@@ -218,6 +218,20 @@ trompe pas deux fois de la même façon. Trois règles de prudence :
 - **La lettre et le CV viennent du dossier `outbox/`**, pas de la base : c'est
   la version que vous avez relue, corrections comprises, qui part.
 
+Quand les motifs butent sur un libellé inattendu — « Comment devons-nous vous
+joindre ? » — un appel du tier gratuit (`form_mapping`) est tenté en dernier
+ressort. Son rôle est borné : **le modèle désigne un emplacement, jamais une
+valeur.** Il répond « ce champ attend l'adresse électronique » ; c'est le code
+qui va chercher l'adresse dans `identity.yaml` et qui la pose. Un modèle qui
+divague ne peut donc pas inventer un numéro de téléphone — au pire il se trompe
+de case, ce qui se voit dans le rapport comme dans le navigateur. Les fichiers
+et les cases à cocher lui échappent entièrement, et un champ que les motifs ont
+déjà reconnu n'est jamais réattribué.
+
+L'appel n'a lieu que si le déterministe a échoué, et jamais sur un formulaire
+qu'il a su remplir. Sans clé d'API, sans budget ou avec `--no-llm`, la passe se
+déroule à l'identique : les champs inconnus repartent en `handoff`.
+
 | Issue | État | Ce que vous trouvez |
 |---|---|---|
 | formulaire rempli | `prefilled` | l'onglet ouvert, `formulaire.png`, `candidature.md` |
@@ -295,6 +309,7 @@ agent_emploi/
   agents/letter.py  rédaction de la lettre (LLM, tier payant)
   agents/review.py  relecture de la lettre (LLM, tier gratuit)
   apply/fields.py   appariement champ <-> information (aucun navigateur)
+  apply/mapping.py  recours LLM sur un libellé inconnu (tier gratuit)
   apply/identity.py état civil, lu dans profile/identity.yaml
   apply/browser.py  Playwright, contexte persistant — aucune fonction d'envoi
   apply/login.py    connexion aux sites, mot de passe jamais écrit sur disque

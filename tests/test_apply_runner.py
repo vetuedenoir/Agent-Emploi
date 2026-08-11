@@ -212,6 +212,75 @@ def test_champ_obligatoire_inconnu_rend_la_main_sans_rien_remplir(
     assert "voici ma lettre relue" in fiche  # de quoi candidater à la main
 
 
+def test_le_recours_llm_nest_pas_sollicite_quand_les_motifs_suffisent(
+    approved, config, identity
+):
+    """Aucun appel — même gratuit — sur un formulaire que le code sait remplir."""
+    _, _, seen, job_store = approved
+    calls = []
+
+    run_apply(
+        config,
+        browser=FakeBrowser(FakePage([text_field("s1", "Prénom", required=True)])),
+        seen=seen,
+        job_store=job_store,
+        identity=identity,
+        guess=lambda *args: calls.append(args) or {},
+    )
+
+    assert calls == []
+
+
+def test_le_recours_llm_rattrape_un_libelle_inattendu(approved, config, identity):
+    job, _, seen, job_store = approved
+    page = FakePage(
+        [
+            text_field("s1", "Prénom", required=True),
+            text_field("s2", "Comment vous joindre ?", required=True),
+        ]
+    )
+    seen_args = []
+
+    def guess(fields, available, job_id):
+        seen_args.append((available, job_id))
+        return {"s2": Slot.EMAIL}
+
+    report = run_apply(
+        config,
+        browser=FakeBrowser(page),
+        seen=seen,
+        job_store=job_store,
+        identity=identity,
+        guess=guess,
+    )
+
+    assert len(report.prepared) == 1
+    assert page.filled == {"s1": "Killian", "s2": "killian@exemple.fr"}
+    # Le prénom est déjà attribué : il n'est pas reproposé au modèle.
+    available, job_id = seen_args[0]
+    assert Slot.FIRST_NAME not in available
+    assert Slot.CV not in available
+    assert job_id == job.id
+
+
+def test_un_recours_infructueux_rend_la_main(approved, config, identity):
+    job, _, seen, job_store = approved
+    page = FakePage([text_field("s2", "Votre plat préféré", required=True)])
+
+    report = run_apply(
+        config,
+        browser=FakeBrowser(page),
+        seen=seen,
+        job_store=job_store,
+        identity=identity,
+        guess=lambda *args: {},
+    )
+
+    assert page.filled == {}
+    assert len(report.handoffs) == 1
+    assert seen.get(job.id).state is JobState.HANDOFF
+
+
 def test_captcha_rend_la_main_avant_de_rien_taper(approved, config, identity):
     job, _, seen, job_store = approved
     page = FakePage([text_field("s1", "Prénom")], blockers=["captcha détecté"])

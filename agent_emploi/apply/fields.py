@@ -214,18 +214,31 @@ class Plan:
         return not self.blocking
 
 
-def build_plan(fields: list[FormField], values: dict[Slot, str]) -> Plan:
+def build_plan(
+    fields: list[FormField],
+    values: dict[Slot, str],
+    overrides: dict[str, Slot] | None = None,
+) -> Plan:
     """Apparie les champs aux valeurs disponibles et classe le reste.
 
     `values` porte ce que l'on sait poser : l'état civil, le chemin du CV et le
     texte de la lettre. Un emplacement reconnu mais sans valeur n'est pas une
     erreur silencieuse — il finit dans `todo`, ou dans `blocking` si le champ
     est obligatoire.
+
+    `overrides` est l'appariement obtenu du modèle (voir `mapping.py`), indexé
+    par sélecteur. Il ne sert **que** de recours : les motifs sont consultés
+    d'abord, et un champ qu'ils reconnaissent n'est jamais réattribué par le
+    modèle. Les fichiers et les champs déclaratifs y échappent entièrement —
+    on ne coche pas une case sur la foi d'une supposition.
     """
     plan = Plan()
+    overrides = overrides or {}
 
     for field_ in fields:
         slot = match(field_)
+        if slot is None and field_.kind in TEXTUAL:
+            slot = overrides.get(field_.selector)
 
         if slot is None:
             label = field_.display

@@ -5,6 +5,7 @@ l'autre.
 
     fields.py    appariement champ ↔ information — Python pur, sans navigateur
     identity.py  état civil, lu dans `profile/identity.yaml`
+    mapping.py   recours LLM sur un libellé inconnu — désigne, ne remplit pas
     browser.py   Playwright, contexte persistant — aucune fonction d'envoi
     login.py     connexion aux sites, mot de passe jamais écrit sur disque
     handoff.py   la fiche `candidature.md` remise quand on rend la main
