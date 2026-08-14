@@ -5,12 +5,35 @@ Sert le gros du volume : filtrage d'adéquation, revue, mapping de formulaire.
 
 from __future__ import annotations
 
+import re
+
 import httpx
 
-from agent_emploi.llm.providers.base import Completion, ProviderError
+from agent_emploi.llm.providers.base import (
+    Completion,
+    ProviderError,
+    RateLimited,
+    TransientError,
+)
 
 ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 TIMEOUT = httpx.Timeout(60.0, connect=10.0)
+
+#: Groq chiffre l'attente dans le corps de la réponse (« Please try again in
+#: 18.05s ») en plus de l'en-tête `retry-after`, qu'il n'envoie pas toujours.
+_RETRY_IN = re.compile(r"try again in ([\d.]+)s", re.IGNORECASE)
+
+
+def retry_delay(response: httpx.Response) -> float | None:
+    """Délai d'attente annoncé par Groq, en secondes, ou `None`."""
+    header = response.headers.get("retry-after")
+    if header:
+        try:
+            return float(header)
+        except ValueError:
+            pass
+    match = _RETRY_IN.search(response.text)
+    return float(match.group(1)) if match else None
 
 
 class GroqProvider:
@@ -51,14 +74,20 @@ class GroqProvider:
             response.raise_for_status()
             data = response.json()
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(
-                f"groq: HTTP {exc.response.status_code} — {exc.response.text[:300]}"
-            ) from exc
+            message = f"groq: HTTP {exc.response.status_code} — {exc.response.text[:300]}"
+            if exc.response.status_code == 429:
+                raise RateLimited(message, retry_delay(exc.response)) from exc
+            raise ProviderError(message) from exc
+        except httpx.TransportError as exc:
+            # DNS, connexion, délai dépassé : la requête n'a pas abouti au
+            # modèle. Elle est rejouable telle quelle.
+            raise TransientError(f"groq: {exc.__class__.__name__} — {exc}") from exc
         except httpx.HTTPError as exc:
             raise ProviderError(f"groq: {exc}") from exc
 
         try:
-            text = data["choices"][0]["message"]["content"]
+            choice = data["choices"][0]
+            text = choice["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise ProviderError(f"groq: réponse inattendue — {data}") from exc
 
@@ -70,4 +99,5 @@ class GroqProvider:
             text=text.strip(),
             tokens_in=usage.get("prompt_tokens", 0),
             tokens_out=usage.get("completion_tokens", 0),
+            truncated=choice.get("finish_reason") == "length",
         )

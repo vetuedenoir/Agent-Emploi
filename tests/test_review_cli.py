@@ -15,6 +15,8 @@ from agent_emploi.review_cli import (
     Console,
     approve,
     concerns,
+    find_editor,
+    open_editor,
     pending,
     reject,
     resolve,
@@ -114,6 +116,33 @@ def enqueue(wired, job: Job, *, letter_text: str = LETTRE, review=None, **fields
     directory = write_bundle(config.paths.outbox, record, profile.cv_fr)
     job_store.save(job, outbox=str(directory))
     return job, directory
+
+
+class TestFindEditor:
+    """Sans éditeur, l'entrée « e » du menu ne fait rien et la boucle tourne
+    à vide. `$EDITOR` n'est pas exporté par défaut sous zsh : compter dessus
+    seul, c'est compter sur rien."""
+
+    def test_prefers_the_user_choice(self, monkeypatch):
+        monkeypatch.setenv("VISUAL", "code -w")
+        monkeypatch.setenv("EDITOR", "vim")
+        assert find_editor() == "code -w"
+
+    def test_falls_back_to_an_editor_found_on_the_path(self, monkeypatch):
+        monkeypatch.delenv("VISUAL", raising=False)
+        monkeypatch.delenv("EDITOR", raising=False)
+        monkeypatch.setattr(
+            "agent_emploi.review_cli.shutil.which",
+            lambda name: "/usr/bin/nano" if name == "nano" else None,
+        )
+        assert find_editor() == "nano"
+
+    def test_says_so_when_there_is_nothing_to_launch(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("VISUAL", raising=False)
+        monkeypatch.delenv("EDITOR", raising=False)
+        monkeypatch.setattr("agent_emploi.review_cli.shutil.which", lambda name: None)
+        message = open_editor(tmp_path / "lettre.md")
+        assert message is not None and "aucun éditeur" in message
 
 
 class TestPending:
@@ -368,6 +397,64 @@ class TestRunReview:
         report, console = self.run(wired, ["o", "p"])
         assert console.opened == [(directory / "preview.html").as_uri()]
         assert wired[1].get(job.id).state is JobState.AWAITING_USER
+
+    def test_q_at_the_reason_prompt_cancels_the_rejection(self, wired):
+        """Le rejet est irréversible. `q` tapé là veut dire « je voulais
+        quitter », jamais « rejette avec le motif q »."""
+        job, _ = enqueue(wired, make_job(1))
+        report, console = self.run(wired, ["r", "q", "p"])
+
+        assert report.rejected == []
+        assert len(report.postponed) == 1
+        assert wired[1].get(job.id).state is JobState.AWAITING_USER
+        assert "rejet annulé" in console.output
+
+    def test_a_real_reason_still_rejects(self, wired):
+        job, _ = enqueue(wired, make_job(1))
+        report, _ = self.run(wired, ["r", "trop loin"])
+
+        assert len(report.rejected) == 1
+        assert wired[1].get(job.id).state is JobState.REJECTED
+        assert wired[1].get(job.id).reason == "utilisateur:trop loin"
+
+    def test_open_shows_the_hand_edited_letter_not_the_generated_one(self, wired):
+        """`preview.html` n'est écrite qu'à la rédaction. Sans réécriture, on
+        relit la version du modèle en croyant relire sa propre correction."""
+        job, directory = enqueue(wired, make_job(1))
+        corrigee = " ".join(["corrigé"] * 170)
+        (directory / "lettre.md").write_text(corrigee, encoding="utf-8")
+
+        report, console = self.run(wired, ["o", "p"])
+
+        preview = (directory / "preview.html").read_text(encoding="utf-8")
+        assert "corrigé" in preview
+        # Un fragment du texte d'origine, assez long pour ne pas se confondre
+        # avec le « 170 mots » de l'en-tête.
+        assert LETTRE[:40] not in preview
+        assert report.errors == []
+
+    def test_approving_leaves_a_preview_that_matches_the_letter(self, wired):
+        """Le dossier part tel quel à l'archivage : sa preview doit montrer la
+        lettre approuvée."""
+        job, directory = enqueue(wired, make_job(1))
+        corrigee = " ".join(["corrigé"] * 170)
+        (directory / "lettre.md").write_text(corrigee, encoding="utf-8")
+
+        self.run(wired, ["a"])
+
+        assert "corrigé" in (directory / "preview.html").read_text(encoding="utf-8")
+
+    def test_open_works_when_outbox_is_a_relative_path(self, wired, monkeypatch):
+        """`outbox:` est relatif dans `config.yaml`, et un chemin relatif n'a
+        pas d'URI : sans résolution, « o » lève au lieu d'ouvrir la preview."""
+        config, _, job_store, _ = wired
+        job, directory = enqueue(wired, make_job(1))
+        monkeypatch.chdir(config.paths.outbox.parent)
+        job_store.save(job, outbox=directory.name and f"outbox/{directory.name}")
+
+        report, console = self.run(wired, ["o", "p"])
+        assert console.opened == [(directory / "preview.html").resolve().as_uri()]
+        assert report.errors == []
 
     def test_only_restricts_the_pass_to_one_bundle(self, wired):
         job1, _ = enqueue(wired, make_job(1), fit=fit(score=90))

@@ -142,17 +142,46 @@ class Screening:
         return cls(False, reason, lexical_score)
 
 
+#: Longueur en deçà de laquelle un terme est traité comme un sigle : la
+#: comparaison passe alors par les limites de mot. « ai » cherché en
+#: sous-chaîne se trouve dans « financial », « ml » dans « html » — un filtre
+#: qui laisse tout passer ne filtre rien.
+ACRONYM_LEN = 4
+
+#: Ce qui colle à un sigle sans le prolonger. L'apostrophe en fait partie :
+#: sans elle, « ai » se trouverait dans « j'ai ».
+_BOUNDARY = "a-z0-9'’"
+
+
+def _matcher(term: str) -> re.Pattern[str] | None:
+    """Motif à limites de mot pour un sigle, ou `None` pour un terme ordinaire."""
+    if len(term) > ACRONYM_LEN or not term.isalnum():
+        return None
+    return re.compile(
+        rf"(?<![{_BOUNDARY}]){re.escape(term)}(?![{_BOUNDARY}])"
+    )
+
+
 def contains_any(text: str, terms: list[str]) -> str | None:
     """Retourne le premier terme trouvé dans le texte, ou `None`.
 
     La comparaison est faite sur les formes repliées et par sous-chaîne : un
     terme de configuration comme « data scien » attrape « data science » comme
     « data scientist », ce qui évite d'énumérer les variantes.
+
+    Les sigles font exception. Cherchés en sous-chaîne, ils attrapent n'importe
+    quoi — « IA » dans « financial », « ML » dans « HTML » — et pris à la
+    lettre ils manquent l'essentiel : sans limites de mot, on ne peut pas
+    inscrire « AI » dans la liste, et toutes les annonces intitulées
+    « AI Engineer » sont écartées comme hors sujet.
     """
     haystack = fold(text)
     for term in terms:
         needle = fold(term).strip()
-        if needle and needle in haystack:
+        if not needle:
+            continue
+        pattern = _matcher(needle)
+        if pattern.search(haystack) if pattern else needle in haystack:
             return term
     return None
 

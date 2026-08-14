@@ -229,9 +229,13 @@ def run_draft(
             report.errors.append(f"rédaction {job.title}: {exc}")
             consecutive_failures += 1
             if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                cause = (
+                    "réseau injoignable"
+                    if exc.transient
+                    else "route letter ou review inutilisable"
+                )
                 report.stopped = (
-                    f"{consecutive_failures} échecs LLM consécutifs — "
-                    "route letter ou review inutilisable"
+                    f"{consecutive_failures} échecs LLM consécutifs — {cause}"
                 )
                 logger.warning("passe interrompue: %s", report.stopped)
                 break

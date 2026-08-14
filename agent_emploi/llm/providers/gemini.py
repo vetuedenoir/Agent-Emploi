@@ -6,12 +6,36 @@ mieux qu'un seul, une saturation ne bloque alors pas la passe.
 
 from __future__ import annotations
 
+import re
+
 import httpx
 
-from agent_emploi.llm.providers.base import Completion, ProviderError
+from agent_emploi.llm.providers.base import (
+    Completion,
+    ProviderError,
+    RateLimited,
+    TransientError,
+)
 
 BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 TIMEOUT = httpx.Timeout(60.0, connect=10.0)
+
+#: Gemini renvoie le délai dans un bloc `RetryInfo` du corps, au format
+#: protobuf `Duration` (« 41s »). Absent quand le quota épuisé est journalier :
+#: il n'y a alors rien à attendre dans la passe en cours.
+_RETRY_DELAY = re.compile(r'"retryDelay"\s*:\s*"([\d.]+)s"')
+
+
+def retry_delay(response: httpx.Response) -> float | None:
+    """Délai d'attente annoncé par Gemini, en secondes, ou `None`."""
+    header = response.headers.get("retry-after")
+    if header:
+        try:
+            return float(header)
+        except ValueError:
+            pass
+    match = _RETRY_DELAY.search(response.text)
+    return float(match.group(1)) if match else None
 
 
 class GeminiProvider:
@@ -53,9 +77,14 @@ class GeminiProvider:
             response.raise_for_status()
             data = response.json()
         except httpx.HTTPStatusError as exc:
-            raise ProviderError(
+            message = (
                 f"gemini: HTTP {exc.response.status_code} — {exc.response.text[:300]}"
-            ) from exc
+            )
+            if exc.response.status_code == 429:
+                raise RateLimited(message, retry_delay(exc.response)) from exc
+            raise ProviderError(message) from exc
+        except httpx.TransportError as exc:
+            raise TransientError(f"gemini: {exc.__class__.__name__} — {exc}") from exc
         except httpx.HTTPError as exc:
             raise ProviderError(f"gemini: {exc}") from exc
 
@@ -76,4 +105,5 @@ class GeminiProvider:
             text=text,
             tokens_in=usage.get("promptTokenCount", 0),
             tokens_out=usage.get("candidatesTokenCount", 0),
+            truncated=candidates[0].get("finishReason") == "MAX_TOKENS",
         )

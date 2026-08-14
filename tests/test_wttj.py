@@ -174,6 +174,77 @@ class TestEnrich:
         assert source.enrich(stripped) == stripped
 
 
+class TestOrganizationSlugMismatch:
+    """L'index Algolia sert parfois un slug d'organisation que l'API ignore.
+
+    Le suffixe numérique est le plus souvent légitime (`wise-1`, `prosol-1`
+    n'existent que sous cette forme) : il ne doit être retiré qu'après un 404,
+    jamais d'emblée.
+    """
+
+    def calls(self, known: str):
+        """Routeur où seule `known` existe côté API v3 ; trace les slugs vus."""
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            url = str(request.url)
+            if "algolia.net" in url:
+                return httpx.Response(200, json=SEARCH)
+            if "/api/v3/organizations/" in url:
+                org = url.split("/organizations/")[1].split("/jobs/")[0]
+                seen.append(org)
+                if org != known:
+                    return httpx.Response(404, json={"error": "Not Found"})
+                return httpx.Response(200, json=DETAIL)
+            return httpx.Response(404)
+
+        return handler, seen
+
+    def enriched_with(self, known: str):
+        handler, seen = self.calls(known)
+        source = fake_source(handler)
+        job = source.search(SearchQuery(text="ml", limit=1))[0]
+        job = job.model_copy(
+            update={"source_ref": {**job.source_ref, "org_slug": "doctrine-1"}}
+        )
+        return source.enrich(job), seen
+
+    def test_retries_without_the_suffix_after_a_404(self):
+        enriched, seen = self.enriched_with("doctrine")
+        assert enriched.is_enriched
+        assert seen == ["doctrine-1", "doctrine"]
+
+    def test_suffixed_slug_is_tried_first_and_kept(self):
+        enriched, seen = self.enriched_with("doctrine-1")
+        assert enriched.is_enriched
+        assert seen == ["doctrine-1"]
+
+    def test_gives_up_when_neither_form_exists(self):
+        enriched, seen = self.enriched_with("autre-chose")
+        assert not enriched.is_enriched
+        assert seen == ["doctrine-1", "doctrine"]
+
+    def test_a_500_is_not_retried(self):
+        """Une panne serveur n'est pas un slug erroné : inutile d'insister."""
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            url = str(request.url)
+            if "algolia.net" in url:
+                return httpx.Response(200, json=SEARCH)
+            seen.append(url)
+            return httpx.Response(500, json={"error": "boom"})
+
+        source = fake_source(handler)
+        job = source.search(SearchQuery(text="ml", limit=1))[0]
+        job = job.model_copy(
+            update={"source_ref": {**job.source_ref, "org_slug": "doctrine-1"}}
+        )
+
+        assert source.enrich(job) == job
+        assert len(seen) == 1
+
+
 class TestCredentials:
     def test_explicit_credentials_skip_network(self):
         def refuse(request: httpx.Request) -> httpx.Response:

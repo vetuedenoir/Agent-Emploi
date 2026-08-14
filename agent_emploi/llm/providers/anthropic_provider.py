@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import anthropic
 
-from agent_emploi.llm.providers.base import Completion, ProviderError
+from agent_emploi.llm.providers.base import (
+    Completion,
+    ProviderError,
+    RateLimited,
+    TransientError,
+)
 
 #: Le préfixe stable (consignes + CV + voix) est identique d'une offre à l'autre :
 #: on le met en cache pour ne payer le plein tarif qu'une fois.
@@ -44,6 +49,19 @@ class AnthropicProvider:
 
         try:
             response = self._client.messages.create(**params)
+        except anthropic.RateLimitError as exc:
+            header = (exc.response.headers or {}).get("retry-after")
+            try:
+                delay = float(header) if header else None
+            except ValueError:
+                delay = None
+            raise RateLimited(f"anthropic: {exc}", delay) from exc
+        except anthropic.APIConnectionError as exc:
+            # Couvre aussi APITimeoutError. Le SDK résume toute panne de
+            # transport en « Connection error. » : la cause d'origine est plus
+            # parlante quand il faut savoir si c'est le DNS ou le serveur.
+            cause = exc.__cause__ or exc
+            raise TransientError(f"anthropic: {exc} ({cause})") from exc
         except anthropic.APIError as exc:
             raise ProviderError(f"anthropic: {exc}") from exc
 
@@ -70,5 +88,8 @@ class AnthropicProvider:
             + (usage.cache_read_input_tokens or 0)
         )
         return Completion(
-            text=text, tokens_in=tokens_in, tokens_out=usage.output_tokens
+            text=text,
+            tokens_in=tokens_in,
+            tokens_out=usage.output_tokens,
+            truncated=response.stop_reason == "max_tokens",
         )

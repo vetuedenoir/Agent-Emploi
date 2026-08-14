@@ -34,6 +34,45 @@ _HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 #: l'utilisateur d'écrire, et donc là que l'on vérifie qu'il a écrit.
 _FENCED = re.compile(r"^```[^\n]*\n(.*?)^```", re.MULTILINE | re.DOTALL)
 
+#: Images encodées en `data:` — ce que produit la conversion d'un PDF en
+#: markdown. Une seule photo d'identité pèse une centaine de milliers de
+#: caractères, soit plus de vingt fois le texte du CV.
+_DATA_URI_IMAGE = re.compile(r"!\[[^\]]*\]\(\s*data:[^)]*\)")
+
+#: Le même blob sous forme de balise HTML ou de référence de lien markdown,
+#: les deux autres formes que rendent les convertisseurs courants.
+_DATA_URI_HTML = re.compile(r"<img[^>]*\bsrc=[\"']?data:[^>]*>", re.IGNORECASE)
+_DATA_URI_REF = re.compile(r"^\[[^\]]*\]:\s*data:.*$", re.MULTILINE)
+
+
+def strip_data_uris(text: str) -> str:
+    """Retire les images encodées en base64 d'un markdown.
+
+    Le CV est le préfixe de tous les prompts : il est envoyé une fois par
+    offre. Un `cv.md` issu d'un PDF y embarque la photo d'identité en
+    `data:image/png;base64,…`, qui ne dit rien au modèle mais fait exploser la
+    taille de la requête — assez pour dépasser la limite par minute du tier
+    gratuit et faire échouer toute la passe sur un HTTP 413. On la retire donc
+    au chargement plutôt que de compter sur la propreté du fichier.
+    """
+    for pattern in (_DATA_URI_IMAGE, _DATA_URI_HTML, _DATA_URI_REF):
+        text = pattern.sub("", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def load_cv(path: Path) -> str:
+    """Lit le CV texte et le débarrasse de ce qui n'a pas à partir au modèle."""
+    raw = Path(path).read_text(encoding="utf-8")
+    cleaned = strip_data_uris(raw)
+    if len(raw) - len(cleaned) > 1000:
+        logger.info(
+            "%s: %d caractères d'images encodées retirés du CV (%d restants)",
+            path,
+            len(raw) - len(cleaned),
+            len(cleaned),
+        )
+    return cleaned
+
 
 def clean_voice(text: str) -> str:
     """Retire les consignes du gabarit, garde ce que l'utilisateur a écrit."""
@@ -138,7 +177,7 @@ class Profile:
             raise FileNotFoundError(
                 f"CV texte introuvable: {profile.cv_markdown} — requis pour rédiger"
             )
-        cv_text = profile.cv_markdown.read_text(encoding="utf-8").strip()
+        cv_text = load_cv(profile.cv_markdown)
 
         voice = ""
         if profile.voice.exists():

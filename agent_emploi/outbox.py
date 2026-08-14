@@ -210,6 +210,25 @@ def _preview_html(record: JobRecord, cv_name: str | None) -> str:
 """
 
 
+def refresh_preview(directory: Path, record: JobRecord) -> Path | None:
+    """Réécrit `preview.html` à partir du dossier tel qu'il est maintenant.
+
+    `write_bundle` ne passe qu'une fois, à la rédaction : sans cela, une lettre
+    corrigée à la main laisse une preview figée sur la version du modèle. Or
+    c'est l'écran sur lequel on relit son propre travail — y voir l'ancien
+    texte fait douter de ce qui partira, alors que `lettre.md` fait foi.
+
+    Le CV n'est pas recopié : on constate seulement lequel est déjà là.
+    """
+    if record.letter is None or not directory.exists():
+        return None
+
+    cv_name = next((path.name for path in sorted(directory.glob("cv.*"))), None)
+    preview = directory / "preview.html"
+    preview.write_text(_preview_html(record, cv_name), encoding="utf-8")
+    return preview
+
+
 def write_bundle(
     root: Path,
     record: JobRecord,

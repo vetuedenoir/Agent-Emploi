@@ -79,6 +79,20 @@ class TestContainsAny:
     def test_returns_none_without_match(self):
         assert contains_any("Développeur backend", ["llm", "nlp"]) is None
 
+    def test_an_acronym_matches_on_word_boundaries(self):
+        """Sans cela, « AI » ne peut pas figurer dans la liste des termes requis,
+        et toutes les annonces intitulées « AI Engineer » sont jetées."""
+        assert contains_any("Senior AI Engineer", ["ai"]) == "ai"
+        assert contains_any("ML Ops/Engineer", ["ml"]) == "ml"
+
+    def test_an_acronym_does_not_match_inside_a_word(self):
+        assert contains_any("Financial Analyst", ["ai", "ia"]) is None
+        assert contains_any("Intégrateur HTML/CSS", ["ml"]) is None
+        assert contains_any("j'ai fait du web", ["ai"]) is None
+
+    def test_a_long_term_still_matches_as_a_substring(self):
+        assert contains_any("GenAI Engineer", ["genai"]) == "genai"
+
 
 @pytest.fixture
 def filters() -> FiltersConfig:

@@ -39,13 +39,22 @@ search:
 
 filters:
   # Au moins un de ces termes doit apparaître dans le titre ou la description.
+  # Les termes de 4 caractères ou moins sont traités comme des sigles : ils sont
+  # cherchés sur des limites de mot, pas en sous-chaîne. « AI » attrape donc
+  # « AI Engineer » sans attraper « Financial ».
   required_any:
     - "IA"
+    - "AI"
+    - "ML"
+    - "MLOps"
+    - "GenAI"
     - "intelligence artificielle"
     - "machine learning"
     - "deep learning"
     - "LLM"
     - "NLP"
+    - "computer vision"
+    - "vision par ordinateur"
     - "data scien"
   # Élimination immédiate si présent dans le titre.
   excluded_any:
@@ -68,11 +77,15 @@ filters:
 fit:
   # Score minimal du verdict LLM pour passer à la rédaction.
   min_score: 65
-  accept_verdicts: ["apply"]
+  # `maybe` est accepté, mais seulement au-dessus du score : mesuré sur les 95
+  # premiers verdicts, `apply` ne sort jamais en dessous de 70 et `maybe` monte
+  # jusqu'à 75. Refuser tous les `maybe` écartait 4 offres notées 65+ pour la
+  # seule étiquette — c'est le score qui tranche.
+  accept_verdicts: ["apply", "maybe"]
 
 letter:
   min_words: 150
-  max_words: 200
+  max_words: 250
   # Nombre de régénérations autorisées si une formule interdite est détectée.
   max_regenerations: 1
 

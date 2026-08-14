@@ -1,6 +1,6 @@
 import pytest
 
-from agent_emploi.profile import BannedPhrases, Profile, fold
+from agent_emploi.profile import BannedPhrases, Profile, fold, strip_data_uris
 
 
 class TestFold:
@@ -44,6 +44,33 @@ class TestBannedPhrases:
         assert len(BannedPhrases.load(tmp_path / "absent.txt")) == 0
 
 
+class TestStripDataUris:
+    """Une photo d'identité en base64 pèse plus que tout le reste du CV.
+
+    Le CV part dans chaque prompt : la laisser passer suffit à dépasser la
+    limite de tokens par minute du tier gratuit et à faire échouer la passe.
+    """
+
+    def test_removes_a_markdown_image(self):
+        text = "## CV\n\n![](data:image/png;base64,%s)\n\nPython." % ("A" * 5000)
+        cleaned = strip_data_uris(text)
+        assert "base64" not in cleaned
+        assert cleaned.startswith("## CV")
+        assert cleaned.endswith("Python.")
+
+    def test_removes_an_html_image(self):
+        cleaned = strip_data_uris('<img src="data:image/png;base64,AAAA"/>\nPython.')
+        assert cleaned == "Python."
+
+    def test_removes_a_link_reference(self):
+        cleaned = strip_data_uris("[photo]: data:image/png;base64,AAAA\nPython.")
+        assert cleaned == "Python."
+
+    def test_keeps_ordinary_images_and_links(self):
+        text = "![photo](photo.png)\n[site](https://example.com)"
+        assert strip_data_uris(text) == text
+
+
 class TestProfileLoad:
     @pytest.fixture
     def profile_dir(self, tmp_path, config):
@@ -67,6 +94,15 @@ class TestProfileLoad:
         assert "Tensorflow" in profile.cv_text
         assert profile.has_voice
         assert len(profile.banned) == 1
+
+    def test_cv_is_stripped_of_encoded_images(self, profile_dir):
+        config, directory = profile_dir
+        (directory / "cv.md").write_text(
+            "![](data:image/png;base64,%s)\n\nPython, Tensorflow." % ("A" * 20000),
+            encoding="utf-8",
+        )
+        profile = Profile.load(config)
+        assert profile.cv_text == "Python, Tensorflow."
 
     def test_missing_cv_is_fatal(self, profile_dir):
         config, directory = profile_dir

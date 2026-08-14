@@ -30,6 +30,7 @@ from __future__ import annotations
 import logging
 import os
 import shlex
+import shutil
 import subprocess
 import webbrowser
 from dataclasses import dataclass, field
@@ -44,7 +45,7 @@ from agent_emploi.models import (
     UserDecision,
     utcnow,
 )
-from agent_emploi.outbox import read_letter, write_decision
+from agent_emploi.outbox import read_letter, refresh_preview, write_decision
 from agent_emploi.profile import BannedPhrases
 from agent_emploi.store.jobs import JobStore
 from agent_emploi.store.seen import SeenStore
@@ -54,6 +55,15 @@ logger = logging.getLogger(__name__)
 #: Longueur minimale d'une référence de dossier, pour que « a » ne désigne pas
 #: la moitié de la file d'attente.
 MIN_REF = 3
+
+#: Réponse annoncée pour renoncer à un rejet en cours.
+CANCEL = "q"
+
+#: Réponses qui annulent le rejet. `q` y figure parce que c'est la touche pour
+#: quitter la passe : la taper à l'invite du motif veut dire « je voulais
+#: sortir », jamais « rejette avec le motif q ». Un motif n'a pas à s'écrire en
+#: un seul caractère, la perte est nulle.
+CANCEL_ANSWERS = frozenset({CANCEL, "annuler", "cancel", "non"})
 
 
 @dataclass
@@ -207,6 +217,21 @@ def collect_letter(item: Pending, banned: BannedPhrases) -> JobRecord:
     return record.model_copy(update={"letter": edited})
 
 
+def reload(item: Pending, banned: BannedPhrases, config: Config) -> Pending:
+    """Relit le dossier depuis le disque : lettre à jour, réserves recalculées.
+
+    Les réserves ne sont pas conservées d'un affichage à l'autre : une longueur
+    corrigée ou une formule retirée doit cesser d'être signalée, et une formule
+    réintroduite à la main doit apparaître.
+    """
+    record = collect_letter(item, banned)
+    return Pending(
+        record=record,
+        directory=item.directory,
+        concerns=concerns(record, item.directory, config),
+    )
+
+
 def approve(
     item: Pending,
     *,
@@ -240,6 +265,9 @@ def approve(
     )
     if item.directory.exists():
         write_decision(item.directory, decision)
+        # Le dossier part tel quel à l'archivage : sa preview doit montrer la
+        # lettre approuvée, pas celle qu'avait produite le modèle.
+        refresh_preview(item.directory, record)
 
     seen.transition(
         item.job_id,
@@ -276,15 +304,39 @@ def reject(
 # ------------------------------------------------------------------- interaction
 
 
-def open_editor(path: Path) -> str | None:
-    """Ouvre `$VISUAL`/`$EDITOR` sur un fichier. Retourne un message d'erreur.
+#: Éditeurs cherchés dans le `PATH` quand ni `$VISUAL` ni `$EDITOR` n'est
+#: défini. L'ordre va du plus abordable au plus exigeant : personne ne doit
+#: découvrir `vi` sans l'avoir demandé, mais rester coincé sans éditeur est
+#: pire — la lettre s'édite alors dans un autre terminal, et le menu tourne à
+#: vide.
+FALLBACK_EDITORS = ("nano", "micro", "nvim", "vim", "vi")
 
-    Sans éditeur configuré, on n'en devine pas un : le chemin est rendu à
-    l'utilisateur, qui l'ouvrira comme il l'entend.
+
+def find_editor() -> str | None:
+    """Commande d'édition à lancer : le choix de l'utilisateur, ou un défaut."""
+    chosen = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+    if chosen:
+        return chosen
+    return next(
+        (name for name in FALLBACK_EDITORS if shutil.which(name)),
+        None,
+    )
+
+
+def open_editor(path: Path) -> str | None:
+    """Ouvre un éditeur sur un fichier. Retourne un message d'erreur, ou `None`.
+
+    `$VISUAL`/`$EDITOR` d'abord — c'est le choix de l'utilisateur. À défaut, le
+    premier éditeur courant trouvé dans le `PATH` : sans cela, l'entrée « e »
+    du menu ne fait rien du tout sur une machine où ces variables ne sont pas
+    exportées, ce qui est le cas par défaut sous zsh.
     """
-    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+    editor = find_editor()
     if not editor:
-        return f"ni $VISUAL ni $EDITOR n'est défini — éditez {path} à la main"
+        return (
+            f"aucun éditeur trouvé (ni $VISUAL, ni $EDITOR, ni {'/'.join(FALLBACK_EDITORS)})"
+            f" — éditez {path} à la main"
+        )
     try:
         subprocess.run([*shlex.split(editor), str(path)], check=True)
     except (OSError, subprocess.CalledProcessError) as exc:
@@ -414,9 +466,23 @@ def run_review(
             continue
 
         if action == "o":
+            # La preview est écrite une seule fois, à la rédaction. Elle est
+            # donc réécrite depuis `lettre.md` avant d'être ouverte : c'est ce
+            # fichier qui fait foi, y compris quand il a été corrigé hors de
+            # cette boucle — dans un autre terminal, ou lors d'une passe
+            # précédente. Sans cela, on relit la version du modèle en croyant
+            # relire la sienne.
+            queue[index] = item = reload(item, banned, config)
+            refresh_preview(item.directory, item.record)
             preview = item.directory / "preview.html"
             if preview.exists():
-                console.open_url(preview.as_uri())
+                # `outbox` est un chemin relatif dans la configuration, et un
+                # chemin relatif n'a pas d'URI : sans `resolve()`, ouvrir la
+                # preview lève au lieu d'ouvrir quoi que ce soit.
+                # `webbrowser.open` renvoie faux quand il n'a trouvé aucun
+                # navigateur à lancer : sans ce test, l'échec est silencieux.
+                if console.open_url(preview.resolve().as_uri()) is False:
+                    console.write(f"aucun navigateur lancé — ouvrez {preview}")
             else:
                 console.write(f"preview.html introuvable dans {item.directory}")
             continue
@@ -428,17 +494,25 @@ def run_review(
                 continue
             # Le dossier est rechargé : la lettre corrigée est relue, et les
             # réserves recalculées sur elle avant de redemander une décision.
-            record = collect_letter(item, banned)
-            queue[index] = item = Pending(
-                record=record,
-                directory=item.directory,
-                concerns=concerns(record, item.directory, config),
-            )
+            queue[index] = item = reload(item, banned, config)
+            # La preview est réécrite dans la foulée : elle date de la
+            # rédaction, et laissée telle quelle elle afficherait encore la
+            # version du modèle à qui vient de la corriger.
+            refresh_preview(item.directory, item.record)
             continue
 
         note: str | None = None
         if action == "r":
-            note = console.ask("motif (facultatif) > ").strip() or None
+            # Le rejet est irréversible : `ALLOWED_TRANSITIONS[REJECTED]` est
+            # vide, aucun chemin n'en sort. L'invite doit donc offrir une
+            # sortie, et la nommer. Sans cela, un `q` tapé ici pour quitter la
+            # passe est enregistré comme motif de rejet — la décision, elle,
+            # était déjà prise en appuyant sur `r`.
+            note = console.ask(f"motif (facultatif, « {CANCEL} » pour annuler) > ").strip()
+            if note.lower() in CANCEL_ANSWERS:
+                console.write("rejet annulé — le dossier reste en attente")
+                continue
+            note = note or None
 
         try:
             if action == "a":

@@ -26,6 +26,7 @@ from agent_emploi.filters import LexicalScorer, screen_content, screen_metadata
 from agent_emploi.llm.budget import BudgetExceeded
 from agent_emploi.llm.router import LlmError
 from agent_emploi.models import FitVerdict, Job, JobState
+from agent_emploi.profile import load_cv
 from agent_emploi.sources import REGISTRY, JobSource
 from agent_emploi.store.jobs import JobStore
 from agent_emploi.store.seen import SeenStore
@@ -67,7 +68,7 @@ def load_cv_text(config: Config) -> str:
         raise FileNotFoundError(
             f"CV texte introuvable: {path} — requis pour le filtrage lexical"
         )
-    return path.read_text(encoding="utf-8")
+    return load_cv(path)
 
 
 def run_screen(
@@ -154,9 +155,13 @@ def run_screen(
                     # Toutes les offres échouent d'affilée : c'est la route qui
                     # est cassée (clé absente, fournisseur en panne), pas les
                     # offres. Insister coûterait un appel par offre pour rien.
+                    cause = (
+                        "réseau injoignable"
+                        if exc.transient
+                        else "route fit_check inutilisable"
+                    )
                     report.stopped = (
-                        f"{consecutive_failures} échecs LLM consécutifs — "
-                        "route fit_check inutilisable"
+                        f"{consecutive_failures} échecs LLM consécutifs — {cause}"
                     )
                     logger.warning("passe interrompue: %s", report.stopped)
                     break

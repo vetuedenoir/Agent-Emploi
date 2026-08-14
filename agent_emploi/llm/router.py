@@ -11,13 +11,21 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
 from agent_emploi.config import Config, ModelRef, api_key
 from agent_emploi.llm.budget import BudgetTracker, estimate_cost
-from agent_emploi.llm.providers import REGISTRY, Provider, ProviderError
+from agent_emploi.llm.providers import (
+    REGISTRY,
+    Completion,
+    Provider,
+    ProviderError,
+    RateLimited,
+    TransientError,
+)
 from agent_emploi.models import LlmUsage
 
 logger = logging.getLogger(__name__)
@@ -27,9 +35,40 @@ T = TypeVar("T", bound=BaseModel)
 #: Bloc de code Markdown éventuellement enroulé autour du JSON par le modèle.
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
+#: Nombre d'attentes consenties sur un même modèle avant de passer au repli.
+MAX_RATE_LIMIT_RETRIES = 2
+
+#: Au-delà, l'attente n'est plus une cadence mais un quota épuisé (souvent
+#: journalier) : mieux vaut tenter le repli que bloquer la passe.
+MAX_RATE_LIMIT_WAIT = 30.0
+
+#: Attente retenue quand le fournisseur signale la saturation sans chiffrer le
+#: délai. Les fenêtres de cadence des tiers gratuits se comptent en minutes ;
+#: dix secondes suffisent le plus souvent à en sortir.
+DEFAULT_RATE_LIMIT_WAIT = 10.0
+
+#: Reprises consenties sur une panne de transport (DNS, connexion, délai).
+#: Une coupure de quelques secondes ne doit pas coûter une offre, encore moins
+#: une passe entière.
+MAX_TRANSIENT_RETRIES = 3
+
+#: Première attente avant reprise, en secondes. Doublée à chaque essai : 2, 4,
+#: 8 — de quoi traverser une bascule de résolveur sans faire patienter
+#: longtemps quand le réseau est vraiment coupé.
+TRANSIENT_BACKOFF = 2.0
+
 
 class LlmError(RuntimeError):
-    """Échec définitif : le modèle principal et son repli ont tous deux échoué."""
+    """Échec définitif : le modèle principal et son repli ont tous deux échoué.
+
+    `transient` distingue les deux causes que l'appelant ne doit pas traiter de
+    la même façon : une route cassée (clé absente, modèle inconnu) ne guérira
+    pas toute seule, alors qu'un réseau coupé n'apprend rien sur la route.
+    """
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient
 
 
 def extract_json(text: str) -> str:
@@ -95,7 +134,27 @@ class Router:
         json_mode: bool = False,
         job_id: str | None = None,
     ) -> str:
-        """Exécute une tâche et retourne le texte brut de la réponse.
+        """Exécute une tâche et retourne le texte brut de la réponse."""
+        return self.completion(
+            task,
+            prompt,
+            system=system,
+            max_tokens=max_tokens,
+            json_mode=json_mode,
+            job_id=job_id,
+        ).text
+
+    def completion(
+        self,
+        task: str,
+        prompt: str,
+        *,
+        system: str | None = None,
+        max_tokens: int = 2048,
+        json_mode: bool = False,
+        job_id: str | None = None,
+    ) -> Completion:
+        """Exécute une tâche et retourne la réponse complète, métadonnées incluses.
 
         Lève `BudgetExceeded` si un plafond du jour est atteint (la boucle doit
         alors s'arrêter, pas réessayer), ou `LlmError` si tous les modèles de la
@@ -109,31 +168,102 @@ class Router:
             candidates.append(route.fallback)
 
         errors: list[str] = []
+        #: Vrai tant que tous les échecs rencontrés sont des pannes de
+        #: transport : la route, elle, n'a rien démontré.
+        only_transient = True
         for candidate in candidates:
             try:
                 provider = self._provider(candidate.provider)
             except LlmError as exc:
                 # Clé absente ou fournisseur inconnu : on tente le repli.
                 errors.append(str(exc))
+                only_transient = False
                 continue
 
-            try:
-                completion = provider.complete(
-                    model=candidate.model,
-                    prompt=prompt,
-                    system=system,
-                    max_tokens=max_tokens,
-                    json_mode=json_mode,
-                )
-            except ProviderError as exc:
-                errors.append(f"{candidate.provider}/{candidate.model}: {exc}")
-                self._log(task, candidate, job_id, ok=False, error=str(exc))
-                logger.warning(
-                    "tâche %s: échec %s/%s, repli éventuel",
-                    task,
-                    candidate.provider,
-                    candidate.model,
-                )
+            completion = None
+            rate_limited = 0
+            transient = 0
+            while True:
+                try:
+                    completion = provider.complete(
+                        model=candidate.model,
+                        prompt=prompt,
+                        system=system,
+                        max_tokens=max_tokens,
+                        json_mode=json_mode,
+                    )
+                    break
+                except TransientError as exc:
+                    # Le réseau, pas le modèle. Le repli emprunte le même
+                    # réseau : y basculer tout de suite ne réglerait rien, et
+                    # gaspillerait un quota. On attend et on recommence.
+                    transient += 1
+                    if transient > MAX_TRANSIENT_RETRIES:
+                        errors.append(f"{candidate.provider}/{candidate.model}: {exc}")
+                        self._log(task, candidate, job_id, ok=False, error=str(exc))
+                        logger.warning(
+                            "tâche %s: réseau indisponible pour %s/%s après %d "
+                            "reprises — %s",
+                            task,
+                            candidate.provider,
+                            candidate.model,
+                            MAX_TRANSIENT_RETRIES,
+                            exc,
+                        )
+                        break
+                    delay = TRANSIENT_BACKOFF * 2 ** (transient - 1)
+                    logger.info(
+                        "tâche %s: %s injoignable (%s), reprise dans %.0fs (%d/%d)",
+                        task,
+                        candidate.provider,
+                        exc,
+                        delay,
+                        transient,
+                        MAX_TRANSIENT_RETRIES,
+                    )
+                    time.sleep(delay)
+                except RateLimited as exc:
+                    # La cadence n'est pas une panne : le même appel passera
+                    # dans quelques secondes. Basculer tout de suite sur le
+                    # repli dépenserait le seul autre quota gratuit pour rien,
+                    # et le laisse indisponible quand la panne est réelle.
+                    rate_limited += 1
+                    delay = exc.retry_after or DEFAULT_RATE_LIMIT_WAIT
+                    if (
+                        rate_limited > MAX_RATE_LIMIT_RETRIES
+                        or delay > MAX_RATE_LIMIT_WAIT
+                    ):
+                        errors.append(f"{candidate.provider}/{candidate.model}: {exc}")
+                        only_transient = False
+                        self._log(task, candidate, job_id, ok=False, error=str(exc))
+                        logger.warning(
+                            "tâche %s: cadence dépassée sur %s/%s, repli éventuel",
+                            task,
+                            candidate.provider,
+                            candidate.model,
+                        )
+                        break
+                    logger.info(
+                        "tâche %s: cadence %s/%s atteinte, reprise dans %.1fs",
+                        task,
+                        candidate.provider,
+                        candidate.model,
+                        delay,
+                    )
+                    time.sleep(delay)
+                except ProviderError as exc:
+                    errors.append(f"{candidate.provider}/{candidate.model}: {exc}")
+                    only_transient = False
+                    self._log(task, candidate, job_id, ok=False, error=str(exc))
+                    logger.warning(
+                        "tâche %s: échec %s/%s, repli éventuel",
+                        task,
+                        candidate.provider,
+                        candidate.model,
+                    )
+                    break
+
+            if completion is None:
                 continue
 
             self._log(
@@ -143,9 +273,15 @@ class Router:
                 tokens_in=completion.tokens_in,
                 tokens_out=completion.tokens_out,
             )
-            return completion.text
+            return completion
 
-        raise LlmError(f"tâche {task!r}: tous les modèles ont échoué — " + " | ".join(errors))
+        cause = (
+            "réseau injoignable" if only_transient else "tous les modèles ont échoué"
+        )
+        raise LlmError(
+            f"tâche {task!r}: {cause} — " + " | ".join(errors),
+            transient=only_transient,
+        )
 
     def structured(
         self,
@@ -170,21 +306,44 @@ class Router:
             f"{json.dumps(schema.model_json_schema(), ensure_ascii=False)}"
         )
         attempt_prompt = prompt + instructions
+        attempt_tokens = max_tokens
         last_error = ""
 
         for attempt in range(2):
-            raw = self.complete(
+            completion = self.completion(
                 task,
                 attempt_prompt,
                 system=system,
-                max_tokens=max_tokens,
+                max_tokens=attempt_tokens,
                 json_mode=True,
                 job_id=job_id,
             )
             try:
-                return schema.model_validate_json(extract_json(raw))
+                return schema.model_validate_json(extract_json(completion.text))
             except (ValidationError, ValueError) as exc:
                 last_error = str(exc)
+                if completion.truncated:
+                    # Le JSON n'est pas fautif, il est coupé : lui redemander de
+                    # « corriger son erreur » produirait la même coupure. Seule
+                    # la place manque, on la double.
+                    last_error = (
+                        f"réponse tronquée à {attempt_tokens} tokens — {last_error}"
+                    )
+                    logger.warning(
+                        "tâche %s: réponse tronquée à %d tokens (tentative %d/2)",
+                        task,
+                        attempt_tokens,
+                        attempt + 1,
+                    )
+                    attempt_tokens *= 2
+                    attempt_prompt = (
+                        prompt
+                        + instructions
+                        + "\n\nTa réponse précédente a été coupée avant la fin. "
+                        "Sois plus concis : une phrase pour `reason`, au plus "
+                        "cinq entrées dans `matched` et `gaps`."
+                    )
+                    continue
                 logger.warning(
                     "tâche %s: sortie JSON invalide (tentative %d/2)", task, attempt + 1
                 )

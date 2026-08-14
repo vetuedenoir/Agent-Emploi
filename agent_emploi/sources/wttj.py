@@ -41,6 +41,10 @@ API = "https://api.welcometothejungle.com"
 ENV_URL = f"{SITE}/api/env"
 JOBS_INDEX = "wk_cms_jobs_production"
 
+#: Suffixe de désambiguïsation que l'index accole parfois au slug d'une
+#: organisation (`doctrine-1`). Voir `WttjSource._fetch_detail`.
+_ORG_SUFFIX = re.compile(r"-\d+$")
+
 #: Identifiants publics de recherche, relevés le 2026-08-09 sur `/api/env`, où
 #: le site les publie pour son propre front. Ils peuvent être renouvelés ; c'est
 #: le test marqué `live` qui le détectera, en échouant sur un 403.
@@ -375,11 +379,7 @@ class WttjSource:
             time.sleep(self._request_delay)
 
         try:
-            response = self._client.get(
-                f"{API}/api/v3/organizations/{org_slug}/jobs/{job_slug}"
-            )
-            response.raise_for_status()
-            detail = (response.json() or {}).get("job") or {}
+            detail = self._fetch_detail(org_slug, job_slug)
         except (httpx.HTTPError, ValueError) as exc:
             logger.warning("wttj: détail indisponible pour %s — %s", job.url, exc)
             return job
@@ -398,6 +398,34 @@ class WttjSource:
                 "salary": job.salary or self._detail_salary(detail),
             }
         )
+
+    def _fetch_detail(self, org_slug: str, job_slug: str) -> dict:
+        """Le détail d'une offre, avec un second essai sur le slug d'organisation.
+
+        L'index Algolia et l'API v3 ne s'accordent pas toujours sur le slug
+        d'une organisation : l'index sert parfois une forme désambiguïsée
+        (`doctrine-1`) là où l'API ne connaît que la forme nue (`doctrine`).
+
+        Le suffixe est pourtant légitime la plupart du temps — `wise-1`,
+        `prosol-1` n'existent que sous cette forme — donc on ne le retire jamais
+        d'emblée : seulement après un 404, et seulement pour retenter une fois.
+        """
+        url = f"{API}/api/v3/organizations/{org_slug}/jobs/{job_slug}"
+        try:
+            response = self._client.get(url)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            fallback = _ORG_SUFFIX.sub("", org_slug)
+            if exc.response.status_code != 404 or fallback == org_slug:
+                raise
+            logger.debug(
+                "wttj: %s inconnu de l'API, second essai avec %s", org_slug, fallback
+            )
+            response = self._client.get(
+                f"{API}/api/v3/organizations/{fallback}/jobs/{job_slug}"
+            )
+            response.raise_for_status()
+        return (response.json() or {}).get("job") or {}
 
     @staticmethod
     def _detail_salary(detail: dict) -> str | None:

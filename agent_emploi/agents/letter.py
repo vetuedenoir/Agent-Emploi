@@ -49,15 +49,27 @@ dont le CV suit. Tu écris comme lui, pas comme un modèle de lettre.
 Règles :
 - Longueur : entre {min_words} et {max_words} mots. Rien de plus.
 - Langue : celle de l'annonce, indiquée dans la demande.
-- Un fait concret et vérifiable tiré du CV (un projet, une technologie, un
-  chiffre). Jamais de compétence ou d'expérience absente du CV.
-- Une raison spécifique à CETTE entreprise et à CETTE offre, tirée de
-  l'annonce. Une phrase qui marcherait pour n'importe quel employeur est à
-  jeter.
+- La première phrase parle du poste ou de l'entreprise, jamais du statut du
+  candidat. « Étudiant à X, je recherche un stage » est une ouverture morte :
+  le lecteur le sait déjà par le CV.
+- UN projet du CV, développé : le problème traité, une décision technique
+  prise, le résultat. Pas deux projets survolés, pas un catalogue.
+- Trois technologies nommées au maximum dans toute la lettre, et seulement
+  celles que l'annonce demande. Une énumération séparée par des virgules
+  (« Python, SQL et JavaScript, Docker, Nginx ») est un extrait de CV recopié :
+  le lecteur a le CV sous les yeux.
+- Jamais de compétence, de chiffre ou d'expérience absent du CV.
+- Une raison propre à CETTE offre, appuyée sur un élément que seule cette
+  annonce contient — une contrainte du poste, un produit, une façon de
+  travailler. Dire que le périmètre est large ou le sujet intéressant ne vaut
+  rien : n'importe quel candidat peut l'écrire.
 - Pas de flatterie, pas d'adjectifs sur soi-même (« rigoureux », « motivé »,
-  « passionné »). Des faits, le lecteur jugera.
-- Structure : accroche factuelle, ce que le candidat sait faire qui sert le
-  poste, pourquoi cette entreprise, formule de politesse brève.
+  « autonome », « curieux », « passionné »). Des faits, le lecteur jugera.
+- Pas de phrases de raccord qui affirment la correspondance sans la montrer
+  (« ce qui correspond à », « ce qui rejoint directement », « en lien avec mon
+  parcours »). Poser le fait suffit ; le rapprochement se voit.
+- Structure : accroche sur l'offre, le projet qui prouve la capacité attendue,
+  ce qui manque assumé sans excuse s'il y a lieu, formule de politesse brève.
 - Tu réponds avec le texte de la lettre, et rien d'autre : ni objet, ni
   en-tête, ni commentaire, ni balise de code.\
 """
@@ -83,8 +95,14 @@ def _system_prompt(profile: Profile, config: LetterConfig) -> str:
     if profile.has_voice:
         sections.append(
             "# La voix du candidat\n"
-            "Imite ce registre : vocabulaire, longueur de phrase, niveau de "
-            "formalité. Ces échantillons sont de lui.\n\n" + profile.voice
+            "Ces échantillons sont de lui. Tu en tires sa MANIÈRE d'écrire — "
+            "vocabulaire, longueur de phrase, niveau de formalité — et rien "
+            "d'autre.\n"
+            "Tu n'en reprends ni les formules, ni le plan, ni les tournures. "
+            "Certains échantillons sont d'anciennes lettres de candidature : "
+            "elles contiennent précisément les tics que les règles ci-dessus "
+            "interdisent. Les y retrouver ne les autorise pas — c'est le signe "
+            "qu'il faut écrire la phrase autrement.\n\n" + profile.voice
         )
     else:
         sections.append("# La voix du candidat\n" + VOIX_ABSENTE)
