@@ -186,6 +186,53 @@ def contains_any(text: str, terms: list[str]) -> str | None:
     return None
 
 
+#: Emplois du mot « apprentissage » qui ne parlent pas de contrat mais de
+#: machine learning. Sans cette exception, « Ingénieur de recherche en
+#: apprentissage automatique » — un CDI — passerait pour une alternance.
+_ML_APPRENTISSAGE = re.compile(
+    r"apprentissage\s+(?:automatique|profond|machine|statistique|artificiel|"
+    r"(?:non\s+)?supervise|par\s+renforcement)"
+)
+
+#: Formats de contrat qu'un intitulé annonce sans ambiguïté. Le stage est
+#: cherché en premier : sur « Stage ou alternance », c'est lui qui est retenu
+#: quand la source ne tranche pas.
+_TITLE_CONTRACTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Stage", ("stage", "stagiaire", "internship")),
+    (
+        "Alternance",
+        ("alternance", "alternant", "apprentissage", "apprenti", "contrat pro"),
+    ),
+)
+
+
+def contract_from_title(title: str, declared: str | None) -> str | None:
+    """Contrat de l'offre, l'intitulé l'emportant sur le champ de la source.
+
+    Les deux sources se trompent sur les stages et les alternances : « Stage :
+    Ingénieur en informatique » est publiée en CDI chez France Travail comme
+    « Alternance – Ingénieur IA » chez Welcome to the Jungle. Le champ de
+    contrat sert à classer l'offre côté employeur ; l'intitulé, lui, est écrit
+    pour le candidat, et c'est le plus fiable des deux.
+
+    La valeur déclarée est conservée dès qu'elle s'accorde avec l'intitulé :
+    elle est souvent plus riche (« Stage 6 mois »), et sur une annonce ouverte
+    aux deux formats — « AI Engineer (Stagiaire, Alternant) » — c'est la source
+    qui sait lequel elle a publié. On ne corrige que ce qui est contredit.
+    """
+    folded = _ML_APPRENTISSAGE.sub("", fold(title))
+    announced = [
+        label
+        for label, needles in _TITLE_CONTRACTS
+        if any(needle in folded for needle in needles)
+    ]
+    if not announced:
+        return declared
+    if declared and any(fold(label) in fold(declared) for label in announced):
+        return declared
+    return announced[0]
+
+
 def _matches_option(value: str | None, allowed: list[str]) -> bool:
     """Vrai si la valeur correspond à l'une des options acceptées.
 

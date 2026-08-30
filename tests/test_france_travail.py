@@ -476,6 +476,28 @@ class TestContractLabel:
         )
         assert source.search(SearchQuery(text="ia", limit=1))[0].contract == "Alternance"
 
+    def test_apprenticeship_is_read_from_the_title_too(self):
+        """Reprise d'une offre réelle : « … en alternance » publiée en CDI.
+
+        Ni `natureContrat` ni le drapeau `alternance` ne la signalent : seul
+        l'intitulé le dit.
+        """
+        source, _ = fake_source(
+            Recorder(
+                search={
+                    "resultats": [
+                        {
+                            "id": "X3",
+                            "intitule": "« Ingénieur(e) IA industrielle en alternance H/F » (H/F)",
+                            "typeContrat": "CDI",
+                            "natureContrat": "Contrat travail",
+                        }
+                    ]
+                }
+            )
+        )
+        assert source.search(SearchQuery(text="ia", limit=1))[0].contract == "Alternance"
+
     def test_unknown_code_keeps_the_source_label(self):
         source, _ = fake_source(
             Recorder(

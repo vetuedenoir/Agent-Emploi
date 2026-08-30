@@ -6,6 +6,7 @@ from agent_emploi.config import FiltersConfig, SearchConfig
 from agent_emploi.filters import (
     LexicalScorer,
     contains_any,
+    contract_from_title,
     fold,
     screen_content,
     screen_metadata,
@@ -40,6 +41,66 @@ class TestTokenize:
     def test_keeps_technology_names(self):
         assert "c++" in tokenize("Développement C++ et node.js")
         assert "node.js" in tokenize("Développement C++ et node.js")
+
+
+class TestContractFromTitle:
+    """L'intitulé corrige le champ de contrat, jamais l'inverse."""
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "Alternance – Ingénieur IA (F/H)",
+            "Ingénieur(e) IA industrielle en alternance H/F",
+            "Alternant Data Scientist",
+            "Ingénieur ML en apprentissage",
+        ],
+    )
+    def test_alternance_in_the_title_overrides_a_declared_cdi(self, title):
+        assert contract_from_title(title, "CDI") == "Alternance"
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "Stage : Ingénieur en informatique",
+            "Data Scientist stagiaire H/F",
+            "Machine Learning Internship",
+        ],
+    )
+    def test_internship_in_the_title_overrides_a_declared_cdi(self, title):
+        assert contract_from_title(title, "CDI") == "Stage"
+
+    def test_internship_wins_when_the_title_offers_both(self):
+        """Une annonce ouverte aux deux formats reste candidatable en stage."""
+        assert contract_from_title("Stage ou alternance en IA", "CDI") == "Stage"
+
+    def test_a_source_that_already_chose_one_of_the_two_is_left_alone(self):
+        title = "AI Engineer, LLM (Stagiaire, Alternant)"
+        assert contract_from_title(title, "Stage") == "Stage"
+        assert contract_from_title(title, "Alternance") == "Alternance"
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "Ingénieur de recherche en apprentissage automatique",
+            "Chercheur en apprentissage profond",
+            "Data Scientist — apprentissage par renforcement",
+            "Ingénieur apprentissage non supervisé",
+        ],
+    )
+    def test_machine_learning_is_not_an_apprenticeship(self, title):
+        """« Apprentissage automatique » nomme le métier, pas le contrat."""
+        assert contract_from_title(title, "CDI") == "CDI"
+
+    def test_a_silent_title_keeps_the_declared_value(self):
+        assert contract_from_title("Machine Learning Engineer", "CDI") == "CDI"
+        assert contract_from_title("Machine Learning Engineer", None) is None
+
+    def test_an_agreeing_title_keeps_the_richer_source_label(self):
+        """Le champ déjà juste n'est pas réécrit : « Stage 6 mois » vaut mieux."""
+        assert contract_from_title("Stage Data Scientist", "Stage 6 mois") == "Stage 6 mois"
+
+    def test_supplies_a_contract_the_source_left_empty(self):
+        assert contract_from_title("Stage Data Scientist", None) == "Stage"
 
 
 class TestLexicalScorer:

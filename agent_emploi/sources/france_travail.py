@@ -36,7 +36,7 @@ from typing import Any, NamedTuple
 
 import httpx
 
-from agent_emploi.filters import fold
+from agent_emploi.filters import contract_from_title, fold
 from agent_emploi.models import Job
 from agent_emploi.sources.base import SearchQuery, SourceError
 
@@ -130,8 +130,6 @@ CONTRACT_TERMS: dict[str, ContractTerm] = {
 #: `_contract_label`, et l'absence de filtre serveur ici.
 UNFILTERABLE = frozenset({"stage"})
 
-#: Intitulés qui trahissent un stage là où les champs de contrat se taisent.
-_STAGE_TITLE = ("stage", "stagiaire", "internship")
 
 #: Nom du paramètre de recherche associé à chaque référentiel.
 _FILTER_PARAM = {"typesContrats": "typeContrat", "naturesContrats": "natureContrat"}
@@ -520,11 +518,12 @@ class FranceTravailSource:
         1. **L'alternance d'abord**, car elle est bien typée (nature
            apprentissage ou professionnalisation, `alternance: true`) — y
            compris sur des annonces intitulées « Stage de césure ».
-        2. **L'intitulé ensuite**, parce que les champs de contrat mentent sur
-           les stages : « Stage : Ingénieur en informatique » est publiée en
-           `CDI` / `Contrat travail`. Entre un champ démenti par les faits et un
-           titre explicite, le titre est le plus fiable des deux.
-        3. **Le type de contrat en dernier**, seul cas où il est digne de foi.
+        2. **Le type de contrat ensuite**, pour obtenir un libellé court.
+        3. **L'intitulé en dernier mot**, parce que les champs de contrat
+           mentent sur les stages et les alternances : « Stage : Ingénieur en
+           informatique » est publiée en `CDI` / `Contrat travail`. Entre un
+           champ démenti par les faits et un titre explicite, `contract_from_title`
+           retient le titre.
         """
         nature = fold(str(offer.get("natureContrat") or ""))
         if (
@@ -534,12 +533,11 @@ class FranceTravailSource:
         ):
             return "Alternance"
 
-        title = fold(str(offer.get("intitule") or ""))
-        if any(needle in title for needle in _STAGE_TITLE):
-            return "Stage"
-
         code = str(offer.get("typeContrat") or "")
-        return _CONTRACT_LABELS.get(code) or offer.get("typeContratLibelle") or code or None
+        label = (
+            _CONTRACT_LABELS.get(code) or offer.get("typeContratLibelle") or code or None
+        )
+        return contract_from_title(str(offer.get("intitule") or ""), label)
 
     @staticmethod
     def _parse_date(value: Any) -> datetime | None:

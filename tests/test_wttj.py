@@ -90,6 +90,37 @@ class TestSearch:
         assert len(jobs) == len(slugs)
         assert len({job.id for job in jobs}) == len(jobs)
 
+    def test_apprenticeship_title_overrides_a_full_time_contract(self):
+        """Reprise d'une offre réelle : « Alternance – … » indexée en CDI.
+
+        `contract_type` classe l'offre côté employeur ; s'y fier ferait passer
+        cette alternance pour un CDI, et le fit-check l'écarterait sur le
+        contrat.
+        """
+        hit = {
+            **SEARCH["hits"][0],
+            "objectID": "ALT",
+            "slug": "alternance-ingenieur-ia",
+            "name": "Alternance – Ingénieur Automatisation & IA (F/H)",
+            "contract_type": "full_time",
+            "contract_type_names": {"fr": "CDI", "en": "Permanent contract"},
+        }
+        jobs = fake_source(route(search={**SEARCH, "hits": [hit]})).search(
+            SearchQuery(text="ml", limit=1)
+        )
+        assert jobs[0].contract == "Alternance"
+
+    def test_an_ordinary_title_keeps_the_declared_contract(self):
+        hit = {
+            **SEARCH["hits"][0],
+            "name": "Machine Learning Engineer",
+            "contract_type_names": {"fr": "CDI", "en": "Permanent contract"},
+        }
+        jobs = fake_source(route(search={**SEARCH, "hits": [hit]})).search(
+            SearchQuery(text="ml", limit=1)
+        )
+        assert jobs[0].contract == "CDI"
+
     def test_respects_limit(self):
         jobs = fake_source(route()).search(SearchQuery(text="ml", limit=1))
         assert len(jobs) == 1

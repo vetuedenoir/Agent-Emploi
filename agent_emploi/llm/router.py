@@ -39,8 +39,10 @@ _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 MAX_RATE_LIMIT_RETRIES = 2
 
 #: Au-delà, l'attente n'est plus une cadence mais un quota épuisé (souvent
-#: journalier) : mieux vaut tenter le repli que bloquer la passe.
-MAX_RATE_LIMIT_WAIT = 30.0
+#: journalier) : mieux vaut tenter le repli que bloquer la passe. Le palier
+#: gratuit de Gemini plafonne à 20 requêtes par minute et annonce alors des
+#: délais qui frôlent la minute : sous 60 s, la route reste utilisable.
+MAX_RATE_LIMIT_WAIT = 60.0
 
 #: Attente retenue quand le fournisseur signale la saturation sans chiffrer le
 #: délai. Les fenêtres de cadence des tiers gratuits se comptent en minutes ;

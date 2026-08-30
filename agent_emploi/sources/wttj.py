@@ -31,6 +31,7 @@ from typing import Any
 
 import httpx
 
+from agent_emploi.filters import contract_from_title
 from agent_emploi.models import Job
 from agent_emploi.sources.base import SearchQuery, SourceError
 
@@ -312,14 +313,21 @@ class WttjSource:
             part for part in (office.get("city"), office.get("country")) if part
         )
 
+        title = hit.get("name") or "(sans titre)"
+
         return Job.build(
             source=self.name,
             url=f"{SITE}/fr/companies/{org_slug}/jobs/{job_slug}",
-            title=hit.get("name") or "(sans titre)",
+            title=title,
             company=org.get("name") or org_slug,
             location=location or None,
-            contract=_first(hit.get("contract_type_names"), "fr", "en")
-            or hit.get("contract_type"),
+            # `contract_type` classe l'offre côté employeur et publie en CDI
+            # des annonces intitulées « Alternance – … » : l'intitulé tranche.
+            contract=contract_from_title(
+                title,
+                _first(hit.get("contract_type_names"), "fr", "en")
+                or hit.get("contract_type"),
+            ),
             remote=hit.get("remote"),
             salary=self._salary(hit),
             posted_at=self._parse_date(hit.get("published_at")),
