@@ -1,0 +1,12 @@
+<div id="pass-log" {% if run.running %}hx-get="/passes/{{ run.id }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <p class="pass-state">{% include "partials/pass_status.html" %}
+    {% if run.running %}<span class="spinner" aria-hidden="true"></span>{% endif %}
+    {% if run.exit_code is not none %}<span class="muted small">code {{ run.exit_code }}</span>{% endif %}
+    {% if run.finished %}<span class="muted small">· {{ ((run.finished - run.started).total_seconds()) | round | int }} s</span>{% endif %}
+  </p>
+  <pre class="log">{% for line in run.lines %}{{ line }}
+{% else %}(rien pour l'instant){% endfor %}</pre>
+  {% if not run.running %}
+  <p><a href="/">Tableau de bord</a> · <a href="/offres?state=awaiting_user">Dossiers en attente</a></p>
+  {% endif %}
+</div>

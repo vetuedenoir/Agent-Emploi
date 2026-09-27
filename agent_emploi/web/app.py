@@ -23,7 +23,8 @@ from fastapi.templating import Jinja2Templates
 from agent_emploi.agents.fit import FitAgent
 from agent_emploi.config import Config
 from agent_emploi.web import views
-from agent_emploi.web.routes import actions, manual, offers
+from agent_emploi.web.passes import PassRunner
+from agent_emploi.web.routes import actions, manual, offers, passes
 from agent_emploi.web.state import Stores
 
 HERE = Path(__file__).parent
@@ -79,13 +80,19 @@ def default_fit_agent(config: Config) -> Callable[[], FitAgent]:
 
 
 def create_app(
-    config: Config, *, fit_agent: Callable[[], FitAgent] | None = None
+    config: Config,
+    *,
+    fit_agent: Callable[[], FitAgent] | None = None,
+    runner: PassRunner | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Agent emploi", docs_url=None, redoc_url=None)
     app.state.config = config
     app.state.fit_agent = fit_agent or default_fit_agent(config)
     app.state.stores = Stores(config)
+    app.state.runner = runner or PassRunner(config, write_lock=app.state.stores.write_lock)
     app.state.templates = build_templates()
+    # Le bandeau « passe en cours » de chaque page.
+    app.state.templates.env.globals["runner"] = app.state.runner
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(LOCAL_HOSTS))
 
     @app.middleware("http")
@@ -101,11 +108,14 @@ def create_app(
         stores: Stores = request.app.state.stores
         data = views.dashboard(stores.seen(), stores.jobs(), config)
         return request.app.state.templates.TemplateResponse(
-            request, "dashboard.html", {"data": data}
+            request,
+            "dashboard.html",
+            {"data": data, "runs": request.app.state.runner.history()[:5]},
         )
 
     # Avant `offers` : `/offres/nouvelle` serait sinon lu comme un identifiant.
     app.include_router(manual.router)
     app.include_router(offers.router)
     app.include_router(actions.router)
+    app.include_router(passes.router)
     return app

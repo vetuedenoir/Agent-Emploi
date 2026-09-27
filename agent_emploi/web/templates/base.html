@@ -15,8 +15,16 @@
       <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %}>Tableau de bord</a>
       <a href="/offres" {% if request.url.path.startswith('/offres') and request.url.path != '/offres/nouvelle' %}aria-current="page"{% endif %}>Offres</a>
       <a href="/offres/nouvelle" {% if request.url.path == '/offres/nouvelle' %}aria-current="page"{% endif %}>Ajouter une offre</a>
+      <a href="/passes" {% if request.url.path.startswith('/passes') %}aria-current="page"{% endif %}>Passes</a>
+      <a href="/conso" {% if request.url.path == '/conso' %}aria-current="page"{% endif %}>Consommation</a>
     </nav>
   </header>
+  {% set running = runner.current %}
+  {% if running and request.url.path != '/passes/' ~ running.id %}
+  <p class="running-bar"><span class="spinner" aria-hidden="true"></span>
+    Passe en cours : {{ running.label }} — <a href="/passes/{{ running.id }}">suivre</a>
+    <span class="muted small">(les actions sur les offres attendent sa fin)</span></p>
+  {% endif %}
   <main>
     {% block content %}{% endblock %}
   </main>

@@ -17,7 +17,7 @@ from pathlib import Path
 
 from agent_emploi.config import Config
 from agent_emploi.llm.budget import BudgetTracker
-from agent_emploi.models import JobRecord, JobState, SeenEntry, normalize, utcnow
+from agent_emploi.models import JobRecord, JobState, LlmUsage, SeenEntry, normalize, utcnow
 from agent_emploi.outbox import read_letter
 from agent_emploi.review_cli import concerns, pending
 from agent_emploi.store.jobs import JobStore
@@ -205,3 +205,83 @@ def offer_detail(
     if entry is not None and entry.state is JobState.AWAITING_USER and record.outbox:
         detail.concerns = concerns(record, Path(record.outbox), config)
     return detail
+
+
+@dataclass
+class UsageRow:
+    """Appels cumulés sous une clé : tâche, modèle ou jour."""
+
+    label: str
+    calls: int = 0
+    failures: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost: float = 0.0
+
+    def add(self, usage: LlmUsage) -> None:
+        self.calls += 1
+        self.failures += 0 if usage.ok else 1
+        self.tokens_in += usage.tokens_in
+        self.tokens_out += usage.tokens_out
+        self.cost += usage.cost_est
+
+    @property
+    def failure_rate(self) -> float:
+        return self.failures / self.calls if self.calls else 0.0
+
+
+@dataclass
+class Usage:
+    days: int | None
+    total: UsageRow
+    by_task: list[UsageRow]
+    by_model: list[UsageRow]
+    by_day: list[UsageRow]
+    #: Motifs d'échec les plus fréquents : ce qui fait tomber les passes.
+    errors: list[tuple[str, int]]
+
+
+def _error_kind(error: str | None) -> str:
+    """Le motif d'un échec, sans ce qui change d'un appel à l'autre."""
+    text = (error or "inconnu").split("\n", 1)[0]
+    return text[:90]
+
+
+def usage(path: Path, *, days: int | None = None) -> Usage:
+    """Consommation LLM (Jev compris) lue dans `llm_usage.jsonl`, sur `days` jours."""
+    since = (utcnow() - timedelta(days=days)).date() if days else None
+    total = UsageRow("total")
+    by_task: dict[str, UsageRow] = {}
+    by_model: dict[str, UsageRow] = {}
+    by_day: dict[str, UsageRow] = {}
+    errors: dict[str, int] = {}
+
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    for line in lines:
+        try:
+            entry = LlmUsage.model_validate_json(line)
+        except ValueError:
+            continue
+        day = entry.at.astimezone().date()
+        if since is not None and day < since:
+            continue
+        total.add(entry)
+        by_task.setdefault(entry.task, UsageRow(entry.task)).add(entry)
+        model = f"{entry.provider} · {entry.model}"
+        by_model.setdefault(model, UsageRow(model)).add(entry)
+        by_day.setdefault(day.isoformat(), UsageRow(day.isoformat())).add(entry)
+        if not entry.ok:
+            kind = _error_kind(entry.error)
+            errors[kind] = errors.get(kind, 0) + 1
+
+    def ranked(rows: dict[str, UsageRow]) -> list[UsageRow]:
+        return sorted(rows.values(), key=lambda row: (row.cost, row.calls), reverse=True)
+
+    return Usage(
+        days=days,
+        total=total,
+        by_task=ranked(by_task),
+        by_model=ranked(by_model),
+        by_day=sorted(by_day.values(), key=lambda row: row.label, reverse=True),
+        errors=sorted(errors.items(), key=lambda item: item[1], reverse=True)[:8],
+    )

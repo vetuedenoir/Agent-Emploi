@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from agent_emploi import manual
 from agent_emploi.web import actions, jsonld
+from agent_emploi.web.routes.actions import busy_refusal
 from agent_emploi.web.routes.offers import render_detail
 
 router = APIRouter()
@@ -91,6 +92,9 @@ def create_offer(
 
     stores = request.app.state.stores
     with stores.write_lock:
+        refusal = busy_refusal(request)
+        if refusal:
+            return _form(request, values, status_code=409, error=refusal)
         try:
             manual.add(job, mode=action, seen=stores.seen(), jobs=stores.jobs())
         except manual.DuplicateOffer as exc:

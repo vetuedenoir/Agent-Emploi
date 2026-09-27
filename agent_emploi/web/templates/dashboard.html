@@ -13,7 +13,7 @@
   </a>
   <div class="tile">
     <span class="tile-value">{{ '%.4f' | format(data.budget.spent_usd) }} $</span>
-    <span class="tile-label">dépensés aujourd'hui · plafond {{ '%.2f' | format(data.budget.config.daily_usd) }} $</span>
+    <span class="tile-label"><a href="/conso?jours=1">dépensés aujourd'hui</a> · plafond {{ '%.2f' | format(data.budget.config.daily_usd) }} $</span>
   </div>
   <div class="tile">
     <span class="tile-value">{{ data.budget.calls }}</span>
@@ -32,6 +32,11 @@
   {% else %}
   <p class="muted">Aucune offre pour l'instant : lancer <code>python -m agent_emploi search</code>.</p>
   {% endif %}
+</section>
+
+<section>
+  <h2>Dernières passes <a class="small" href="/passes">tout voir</a></h2>
+  {% include "partials/pass_list.html" %}
 </section>
 
 <section>

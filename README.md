@@ -103,7 +103,7 @@ les mêmes fonctions que la CLI et relit
 terminal apparaît donc sans redémarrage.
 
 - **Tableau de bord** : offres par état, dossiers en attente, consommation du
-  jour, dernière activité.
+  jour, dernières passes, dernière activité.
 - **Offres** : l'historique complet, rejets et motifs compris. Il se filtre
   par état, source et période, se trie par date ou par score, et se cherche
   par entreprise ou intitulé à la frappe (sans tenir compte des accents).
@@ -124,6 +124,48 @@ Depuis la fiche, les mêmes actions qu'en CLI :
   la main peut encore être abandonné.
 - **Déclarer envoyée** une candidature pré-remplie ou rendue à la main, comme
   `apply <réf> --sent`, puis **l'archiver** dans `applications/`.
+
+### Passes et consommation
+
+`/passes` lance `search`, `screen`, `draft`, `run` et `archive`, à blanc ou
+non, avec leurs limites. Chaque passe **est** la commande CLI, exécutée dans un
+thread d'arrière-plan. Son rapport et ses journaux s'affichent en direct
+(rafraîchis toutes les 2 s), et le bilan est gardé dans `data/passes.jsonl`
+pour le tableau de bord.
+
+- **Une passe à la fois.** Pendant qu'elle tourne, les actions sur les offres
+  sont refusées : deux écritures concurrentes sur la même offre pourraient
+  valider deux fois une transition.
+- **Aucune invite.** Les identifiants France Travail viennent de
+  l'environnement ou de `.env`, sinon la source est ignorée, comme dans une
+  tâche planifiée.
+- **`apply` reste en CLI** (navigateur visible, mot de passe à l'invite).
+
+`/conso` reprend `llm_usage.jsonl`, Jev compris : appels, échecs, tokens et
+coût, par tâche, par modèle et par jour. On y voit aussi les motifs d'échec
+les plus fréquents, sur aujourd'hui, 7 jours, 30 jours ou depuis toujours.
+
+### Ajouter une offre vue ailleurs
+
+`/offres/nouvelle` : collez l'adresse, puis « Pré-remplir ». La page est lue
+via son JSON-LD `schema.org/JobPosting`, que WTTJ, Lever, Indeed et la plupart
+des sites carrière publient. À défaut, seuls l'intitulé et l'entreprise
+viennent des balises OpenGraph : c'est le cas de Greenhouse et de
+SmartRecruiters, où la description se colle à la main. Deux façons
+d'enregistrer :
+
+- **Préparer une candidature** : fit-check sans la porte Jev, puis l'offre est
+  retenue **quel que soit le score**. Vous l'avez déjà choisie ; le verdict
+  sert seulement à la lettre (langue, donc CV, atouts et manques). La prochaine
+  passe `draft` la rédige. Si le fit-check échoue (quota, réseau), l'offre reste
+  enregistrée et se relance depuis sa fiche.
+- **Suivre seulement** : état `tracked`, sans appel LLM. On la déclare envoyée,
+  on l'abandonne, ou on la prépare plus tard.
+
+Une offre déjà connue (même URL, ou même entreprise et même intitulé encore en
+cours) est refusée avec un lien vers sa fiche. Une offre que les filtres ont
+écartée peut en revanche être ajoutée : c'est justement le cas où on la veut
+malgré eux. Une fois ajoutée, une passe `search` ne la retraite pas.
 
 Le remplissage lui-même (`apply`) reste en CLI : il ouvre un navigateur visible
 et peut demander un mot de passe à l'invite. La fiche d'une offre approuvée
@@ -561,6 +603,7 @@ agent_emploi/
   screen.py      passe de filtrage : filtres -> enrichissement -> fit-check
   draft.py       passe de rédaction : lettre -> contrôle -> revue -> dossier
   review_cli.py  passe de validation : approuver / éditer / rejeter / plus tard
+  manual.py      offres ajoutées à la main : suivi, ou préparation sans filtres
   profile.py     CV, voix, liste noire, choix du CV (aucun LLM)
   outbox.py      écriture du dossier remis à l'utilisateur
   agents/fit.py     verdict d'adéquation (LLM, tier gratuit)
@@ -584,5 +627,6 @@ config.yaml      tout le réglable : requêtes, filtres, modèles, plafonds
 profile/         CV, voix, formules interdites, état civil
 outbox/          dossiers en cours, en attente de décision ou d'envoi
 applications/    candidatures closes, avec leur fiche de suivi
-data/            seen.jsonl, jobs.jsonl, llm_usage.jsonl, browser/ (non versionnés)
+data/            seen.jsonl, jobs.jsonl, llm_usage.jsonl, passes.jsonl,
+                 browser/ (non versionnés)
 ```

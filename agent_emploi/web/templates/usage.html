@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Consommation · Agent emploi{% endblock %}
+{% macro table(rows, first) %}
+<div class="table-wrap">
+<table class="offers">
+  <thead><tr><th>{{ first }}</th><th class="num">Appels</th><th class="num">Échecs</th><th class="num">Tokens entrée</th><th class="num">Tokens sortie</th><th class="num">Coût estimé</th></tr></thead>
+  <tbody>
+  {% for row in rows %}
+  <tr>
+    <td>{{ row.label }}</td>
+    <td class="num">{{ row.calls }}</td>
+    <td class="num {% if row.failure_rate > 0.2 %}warn{% endif %}">{{ row.failures }}{% if row.failures %} <span class="muted small">({{ (row.failure_rate * 100) | round | int }} %)</span>{% endif %}</td>
+    <td class="num">{{ '{:,}'.format(row.tokens_in).replace(',', ' ') }}</td>
+    <td class="num">{{ '{:,}'.format(row.tokens_out).replace(',', ' ') }}</td>
+    <td class="num">{{ '%.4f' | format(row.cost) }} $</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endmacro %}
+{% block content %}
+<h1>Consommation</h1>
+<nav class="tabs">
+  <a href="/conso" {% if not u.days %}aria-current="page"{% endif %}>Depuis toujours</a>
+  {% for days in periods %}
+  <a href="/conso?jours={{ days }}" {% if u.days == days %}aria-current="page"{% endif %}>{{ "Aujourd'hui" if days == 1 else days ~ ' jours' }}</a>
+  {% endfor %}
+</nav>
+
+<section class="tiles">
+  <div class="tile"><span class="tile-value">{{ u.total.calls }}</span><span class="tile-label">appels (LLM et Jev)</span></div>
+  <div class="tile {% if u.total.failure_rate > 0.2 %}tile-alert{% endif %}"><span class="tile-value">{{ u.total.failures }}</span><span class="tile-label">échecs · {{ (u.total.failure_rate * 100) | round | int }} %</span></div>
+  <div class="tile"><span class="tile-value">{{ '%.4f' | format(u.total.cost) }} $</span><span class="tile-label">coût estimé</span></div>
+</section>
+
+{% if u.total.calls %}
+<section><h2>Par tâche</h2>{{ table(u.by_task, 'Tâche') }}</section>
+<section><h2>Par fournisseur et modèle</h2>{{ table(u.by_model, 'Modèle') }}</section>
+{% if u.errors %}
+<section>
+  <h2>Échecs les plus fréquents</h2>
+  <ul class="errors">{% for kind, count in u.errors %}<li><span class="count">{{ count }}</span> <code>{{ kind }}</code></li>{% endfor %}</ul>
+</section>
+{% endif %}
+<section><h2>Par jour</h2>{{ table(u.by_day, 'Jour') }}</section>
+{% else %}
+<p class="muted">Aucun appel sur cette période.</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Passes · Agent emploi{% endblock %}
+{% block content %}
+<h1>Passes</h1>
+<p class="muted">Chaque passe est la commande CLI du même nom, lancée en arrière-plan ; une seule à la fois. Les identifiants de source viennent de l'environnement ou de <code>.env</code> : sans eux, la source est ignorée. <code>apply</code> reste en ligne de commande.</p>
+
+{% if error %}<p class="banner banner-ko" role="alert">{{ error }}</p>{% endif %}
+
+<section class="pass-grid">
+  {% for name, spec in commands.items() %}
+  <form method="post" action="/passes/{{ name }}" class="card pass-card">
+    <h2>{{ spec.label }} <code class="muted small">{{ name }}</code></h2>
+    <p class="muted small">{{ spec.help }}</p>
+    <div class="form-row">
+      {% if 'limit' in spec.options %}
+      <label class="small">Limite <input type="number" name="limit" min="1" inputmode="numeric" placeholder="config"></label>
+      {% endif %}
+      {% if 'letters' in spec.options %}
+      <label class="small">Lettres max <input type="number" name="letters" min="1" inputmode="numeric" placeholder="∞"></label>
+      {% endif %}
+      <label class="small check"><input type="checkbox" name="dry_run" value="1"> à blanc</label>
+    </div>
+    <button type="submit" {% if runner.current %}disabled title="une passe est en cours"{% endif %}>Lancer</button>
+  </form>
+  {% endfor %}
+</section>
+
+<section>
+  <h2>Historique</h2>
+  {% include "partials/pass_list.html" %}
+</section>
+{% endblock %}

@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}{{ run.label }} · Passes{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/passes">← Passes</a></p>
+<h1>{{ run.label }}</h1>
+<p class="muted">Lancée le {{ run.started | local_time }}{% if run.options %} · {{ run.options }}{% endif %}</p>
+{% include "partials/pass_log.html" %}
+{% endblock %}
