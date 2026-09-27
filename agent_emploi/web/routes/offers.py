@@ -6,9 +6,18 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from agent_emploi.models import JobState
-from agent_emploi.web import views
+from agent_emploi.web import actions, views
 
 router = APIRouter()
+
+#: Messages affichés après une action réussie, repris de l'URL (`?fait=`).
+NOTICES = {
+    "lettre": "Lettre enregistrée.",
+    "approuvee": "Dossier approuvé. La candidature se prépare avec la commande ci-dessous.",
+    "rejetee": "Dossier rejeté.",
+    "envoyee": "Envoi enregistré.",
+    "archivee": "Candidature archivée dans applications/.",
+}
 
 
 def _filters(request: Request) -> views.OfferFilters:
@@ -63,14 +72,35 @@ def offers(request: Request):
     return request.app.state.templates.TemplateResponse(request, template, context)
 
 
-@router.get("/offres/{job_id}", response_class=HTMLResponse)
-def offer(request: Request, job_id: str):
+def render_detail(
+    request: Request,
+    job_id: str,
+    *,
+    status_code: int = 200,
+    error: str | None = None,
+    notice: str | None = None,
+    draft: str | None = None,
+):
+    """La fiche d'une offre, avec le message d'une action qui vient d'avoir lieu."""
     stores = request.app.state.stores
-    detail = views.offer_detail(
-        job_id, stores.seen(), stores.jobs(), request.app.state.config
-    )
+    config = request.app.state.config
+    detail = views.offer_detail(job_id, stores.seen(), stores.jobs(), config)
     if detail is None:
         raise HTTPException(status_code=404, detail="offre inconnue")
+    context = {
+        "d": detail,
+        "can": actions.allowed(detail.entry, detail.record),
+        "letter_bounds": (config.letter.min_words, config.letter.max_words),
+        "error": error,
+        "notice": notice,
+        "draft": draft,
+    }
     return request.app.state.templates.TemplateResponse(
-        request, "offer_detail.html", {"d": detail}
+        request, "offer_detail.html", context, status_code=status_code
     )
+
+
+@router.get("/offres/{job_id}", response_class=HTMLResponse)
+def offer(request: Request, job_id: str):
+    notice = NOTICES.get(request.query_params.get("fait", ""))
+    return render_detail(request, job_id, notice=notice)

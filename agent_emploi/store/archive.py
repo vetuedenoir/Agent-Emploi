@@ -298,25 +298,39 @@ def run_archive(
             continue
 
         try:
-            archived = archive_record(
-                config.paths.applications, job_record, entry, move=move
+            archived = archive_and_save(
+                config, job_record, entry, job_store=job_store, move=move
             )
         except OSError as exc:
             report.errors.append(f"{job_record.job.title}: archivage impossible ({exc})")
             logger.warning("archivage échoué (%s): %s", job_record.job.title, exc)
             continue
-
-        # Le dossier a bougé : `outbox` doit suivre, sans quoi les commandes qui
-        # le lisent (`apply --sent`, `status`) désigneraient un chemin disparu.
-        saved = job_store.save(
-            job_record.job,
-            archive=str(archived.directory),
-            outbox=str(archived.directory) if archived.moved else None,
-        )
-        report.archived.append(
-            ArchivedApplication(
-                record=saved, directory=archived.directory, moved=archived.moved
-            )
-        )
+        report.archived.append(archived)
 
     return report
+
+
+def archive_and_save(
+    config: Config,
+    record: JobRecord,
+    entry: SeenEntry,
+    *,
+    job_store: JobStore,
+    move: bool = True,
+) -> ArchivedApplication:
+    """Classe un dossier et enregistre où il est désormais.
+
+    Commun à la passe d'archivage et à l'interface web, qui archive une offre à
+    la fois. Lève `OSError` si le dossier ne peut pas être classé.
+    """
+    archived = archive_record(config.paths.applications, record, entry, move=move)
+    # Le dossier a bougé : `outbox` doit suivre, sans quoi les commandes qui le
+    # lisent (`apply --sent`, `status`) désigneraient un chemin disparu.
+    saved = job_store.save(
+        record.job,
+        archive=str(archived.directory),
+        outbox=str(archived.directory) if archived.moved else None,
+    )
+    return ArchivedApplication(
+        record=saved, directory=archived.directory, moved=archived.moved
+    )

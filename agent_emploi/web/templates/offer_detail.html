@@ -26,6 +26,43 @@
   </p>
 </header>
 
+{% if notice %}<p class="banner banner-ok" role="status">{{ notice }}</p>{% endif %}
+{% if error %}<p class="banner banner-ko" role="alert">{{ error }}</p>{% endif %}
+
+{% if can.decide or can.reject or can.mark_sent or can.archive or can.apply_command %}
+<section class="card actions">
+  <h2>Actions</h2>
+  {% if can.decide %}
+  <form method="post" action="/offres/{{ d.id }}/approuver" class="form-row">
+    <input type="text" name="note" placeholder="Remarque (facultative)" aria-label="Remarque">
+    <button type="submit" class="primary">Approuver</button>
+  </form>
+  {% endif %}
+  {% if can.reject %}
+  <form method="post" action="/offres/{{ d.id }}/rejeter" class="form-row">
+    <input type="text" name="note" placeholder="Motif du rejet — il sert à régler les filtres" aria-label="Motif du rejet">
+    <button type="submit" class="danger">Rejeter</button>
+  </form>
+  {% endif %}
+  {% if can.apply_command %}
+  <p>Prochaine étape, dans un terminal (navigateur visible, rien n'est envoyé) :</p>
+  <pre class="command"><code>{{ can.apply_command }}</code></pre>
+  {% endif %}
+  {% if can.mark_sent %}
+  <form method="post" action="/offres/{{ d.id }}/envoyee" class="form-row">
+    <input type="text" name="note" placeholder="Remarque (facultative)" aria-label="Remarque">
+    <button type="submit" class="primary">J'ai envoyé la candidature</button>
+  </form>
+  {% endif %}
+  {% if can.archive %}
+  <form method="post" action="/offres/{{ d.id }}/archiver" class="form-row">
+    <span class="muted small">Déplace le dossier dans <code>applications/</code>, avec une fiche de suivi.</span>
+    <button type="submit">Archiver</button>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if d.concerns %}
 <section class="card card-warn">
   <h2>Réserves avant décision</h2>
@@ -37,15 +74,28 @@
 <div class="detail-main">
 
   {% if d.letter %}
-  <section class="card">
+  <section class="card" id="lettre">
     <h2>Lettre
       <span class="muted small">
-        {{ d.letter.split() | length }} mots ·
         {% if d.letter_origin == 'outbox' %}lue depuis <code>lettre.md</code>{% else %}version enregistrée dans <code>jobs.jsonl</code>{% endif %}
         {% if r.letter and r.letter.edited %} · corrigée à la main{% endif %}
       </span>
     </h2>
+    {% if can.edit_letter %}
+    <form method="post" action="/offres/{{ d.id }}/lettre" class="letter-form">
+      <textarea name="text" rows="18" data-wordcount="#letter-words" required>{{ draft if draft is not none else d.letter }}</textarea>
+      <div class="form-row">
+        <span id="letter-words" class="muted small" data-min="{{ letter_bounds[0] }}" data-max="{{ letter_bounds[1] }}">
+          {{ (draft if draft is not none else d.letter).split() | length }} mots (attendu {{ letter_bounds[0] }}–{{ letter_bounds[1] }})
+        </span>
+        <button type="submit">Enregistrer la lettre</button>
+      </div>
+      {% if d.letter_origin == 'outbox' %}<p class="muted small">Enregistrer réécrit <code>lettre.md</code> et <code>preview.html</code> dans le dossier.</p>{% endif %}
+    </form>
+    {% else %}
+    <p class="muted small">{{ d.letter.split() | length }} mots</p>
     <div class="prose">{{ d.letter }}</div>
+    {% endif %}
     {% if r.letter and r.letter.banned_hits %}
     <p class="warn">Formules interdites : {{ r.letter.banned_hits | join(', ') }}</p>
     {% endif %}

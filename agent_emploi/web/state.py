@@ -33,6 +33,10 @@ class Stores:
     def __init__(self, config: Config) -> None:
         self.config = config
         self._lock = threading.Lock()
+        #: Sérialise les écritures : les routes tournent dans un pool de
+        #: threads, et deux clics rapprochés ne doivent pas valider deux fois la
+        #: même transition.
+        self.write_lock = threading.Lock()
         self._seen: SeenStore | None = None
         self._seen_sig: tuple[int, int] | None = None
         self._jobs: JobStore | None = None

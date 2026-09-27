@@ -95,7 +95,10 @@ python -m agent_emploi web --port 8000
 ```
 
 Le serveur n'écoute que sur `127.0.0.1` : les pages n'ont pas
-d'authentification. Il appelle les mêmes fonctions que la CLI et relit
+d'authentification. Il refuse aussi un en-tête `Host` étranger (DNS
+rebinding) et toute écriture venue d'une autre page que la sienne : sans cela,
+un site ouvert dans le navigateur pourrait approuver un dossier. Il appelle
+les mêmes fonctions que la CLI et relit
 `seen.jsonl` et `jobs.jsonl` dès qu'ils changent. Une passe lancée dans un
 terminal apparaît donc sans redémarrage.
 
@@ -109,8 +112,24 @@ terminal apparaît donc sans redémarrage.
   dossiers, et la frise de toutes les transitions. La lettre affichée est
   `lettre.md` quand le dossier existe, puisque c'est lui qui fait foi.
 
-Pour l'instant, l'interface est en lecture seule. Les décisions passent
-encore par `review` et `apply`.
+Depuis la fiche, les mêmes actions qu'en CLI :
+
+- **Corriger la lettre**, avec un compteur de mots en direct. L'enregistrement
+  réécrit `lettre.md` et `preview.html` dans le dossier, et `jobs.jsonl` avec
+  `edited=True`. Les formules interdites sont revérifiées. La lettre reste
+  modifiable jusqu'à l'approbation incluse, puis passe en lecture seule une
+  fois le formulaire pré-rempli.
+- **Approuver ou rejeter** un dossier en attente, comme `review`. Un motif de
+  rejet sert à régler les filtres. Un dossier approuvé, pré-rempli ou rendu à
+  la main peut encore être abandonné.
+- **Déclarer envoyée** une candidature pré-remplie ou rendue à la main, comme
+  `apply <réf> --sent`, puis **l'archiver** dans `applications/`.
+
+Le remplissage lui-même (`apply`) reste en CLI : il ouvre un navigateur visible
+et peut demander un mot de passe à l'invite. La fiche d'une offre approuvée
+affiche la commande exacte à lancer. Une action devenue caduque (l'offre a
+avancé entre-temps via une passe CLI) est refusée avec un message, sans rien
+écrire.
 
 ## Filtrage
 

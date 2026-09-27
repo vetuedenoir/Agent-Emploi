@@ -1,8 +1,11 @@
 """Construction de l'application FastAPI.
 
-Le serveur n'écoute que sur `127.0.0.1` (voir `cli.cmd_web`) : il n'a ni
-authentification ni protection CSRF, et n'en a pas besoin tant qu'il ne sert
-que la machine où il tourne.
+Le serveur n'écoute que sur `127.0.0.1` (voir `cli.cmd_web`) et n'a pas
+d'authentification. Écouter en local ne suffit pourtant pas : n'importe quelle
+page ouverte dans le navigateur peut envoyer un formulaire vers
+`127.0.0.1:8000`, ou y pointer un nom de domaine à elle (DNS rebinding). Deux
+gardes ferment ces portes : l'en-tête `Host` doit désigner la machine locale, et
+une écriture doit venir des pages de l'interface elle-même.
 """
 
 from __future__ import annotations
@@ -11,16 +14,40 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from agent_emploi.config import Config
 from agent_emploi.web import views
-from agent_emploi.web.routes import offers
+from agent_emploi.web.routes import actions, offers
 from agent_emploi.web.state import Stores
 
 HERE = Path(__file__).parent
+
+#: Noms sous lesquels le serveur accepte d'être joint.
+LOCAL_HOSTS = ("127.0.0.1", "localhost")
+
+#: Méthodes qui ne modifient rien, donc sans contrôle d'origine.
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def cross_site(request: Request) -> bool:
+    """Vrai si une écriture vient d'une autre page que l'interface.
+
+    `Sec-Fetch-Site` suffit sur un navigateur récent ; `Origin`, que les
+    navigateurs joignent à tout POST de formulaire, couvre les autres. Une
+    requête sans l'un ni l'autre ne vient pas d'un navigateur (curl, tests) :
+    elle ne peut pas être forgée par une page, elle passe.
+    """
+    fetch_site = request.headers.get("sec-fetch-site")
+    if fetch_site is not None:
+        return fetch_site not in ("same-origin", "none")
+    origin = request.headers.get("origin")
+    if origin is None:
+        return False
+    return origin.split("://", 1)[-1] != request.headers.get("host")
 
 
 def local_time(value: datetime | None, pattern: str = "%d/%m/%Y %H:%M") -> str:
@@ -42,6 +69,14 @@ def create_app(config: Config) -> FastAPI:
     app.state.config = config
     app.state.stores = Stores(config)
     app.state.templates = build_templates()
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(LOCAL_HOSTS))
+
+    @app.middleware("http")
+    async def same_origin_writes(request: Request, call_next):
+        if request.method not in SAFE_METHODS and cross_site(request):
+            return PlainTextResponse("écriture refusée : origine étrangère", status_code=403)
+        return await call_next(request)
+
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
     @app.get("/", response_class=HTMLResponse)
@@ -53,4 +88,5 @@ def create_app(config: Config) -> FastAPI:
         )
 
     app.include_router(offers.router)
+    app.include_router(actions.router)
     return app

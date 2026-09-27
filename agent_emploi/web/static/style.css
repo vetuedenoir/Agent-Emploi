@@ -147,3 +147,21 @@ dd { margin: 0; overflow-wrap: anywhere; }
 }
 .timeline li:last-child::before { background: var(--accent); }
 .timeline time { color: var(--muted); font-size: 0.85rem; }
+
+.banner { padding: 0.6rem 1rem; border-radius: 8px; margin: 0 0 1.25rem; }
+.banner-ok { background: var(--ok-bg); color: var(--ok); }
+.banner-ko { background: var(--ko-bg); color: var(--ko); }
+
+.form-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin: 0.5rem 0; }
+.form-row input[type="text"] { flex: 1 1 240px; }
+input[type="text"], textarea, button {
+  font: inherit; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.45rem 0.6rem;
+}
+textarea { width: 100%; resize: vertical; line-height: 1.5; }
+.letter-form .form-row { justify-content: space-between; }
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+button.danger { color: var(--ko); border-color: var(--ko); }
+.command { background: var(--neutral-bg); padding: 0.5rem 0.75rem; border-radius: 8px; overflow-x: auto; }

@@ -33,7 +33,7 @@ def stores(config):
 
 @pytest.fixture
 def client(config):
-    return TestClient(create_app(config))
+    return TestClient(create_app(config), base_url="http://127.0.0.1")
 
 
 def fit(score: int) -> FitVerdict:
