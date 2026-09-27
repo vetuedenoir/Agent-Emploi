@@ -132,12 +132,19 @@ apply:
 
 llm:
   # Association tâche -> modèle. `tier` sert uniquement de repère de lecture.
+  # Repli Gemini : `gemini-3.5-flash-lite`, pas `gemini-3.5-flash`. Au tier
+  # gratuit, flash répond 503 (« high demand ») ou 429 dès qu'il prend le relais
+  # en rafale — 50 échecs pour 130 réussites dans llm_usage.jsonl. La version
+  # lite a répondu 24 fois sur 24 au banc d'essai du 27/09. Elle trie moins
+  # finement : sur 16 offres, 3 ont changé de côté de `fit.min_score` par
+  # rapport à gpt-oss, toutes vers le refus. Un repli prudent vaut mieux qu'un
+  # repli qui ne répond pas.
   tasks:
     fit_check:
       tier: free
       provider: groq
       model: openai/gpt-oss-120b
-      fallback: { provider: gemini, model: gemini-3.5-flash }
+      fallback: { provider: gemini, model: gemini-3.5-flash-lite }
     letter:
       tier: paid
       provider: anthropic
@@ -146,18 +153,19 @@ llm:
       tier: free
       provider: groq
       model: openai/gpt-oss-120b
-      fallback: { provider: gemini, model: gemini-3.5-flash }
+      fallback: { provider: gemini, model: gemini-3.5-flash-lite }
     form_mapping:
       tier: free
       provider: groq
       model: openai/gpt-oss-120b
+      fallback: { provider: gemini, model: gemini-3.5-flash-lite }
 
   # Tarifs en dollars par million de tokens, pour l'estimation de coût.
   # Les tiers gratuits sont à 0 ; ajuster si un quota devient payant.
   pricing:
     "claude-opus-5": { input: 5.0, output: 25.0 }
     "openai/gpt-oss-120b": { input: 0.0, output: 0.0 }
-    "gemini-3.5-flash": { input: 0.0, output: 0.0 }
+    "gemini-3.5-flash-lite": { input: 0.0, output: 0.0 }
     # Porte Jev : seule l'entrée est facturée.
     "jev-latest": { input: 0.042, output: 0.0 }
 

@@ -98,6 +98,12 @@ class TestErrorClassification:
             GroqProvider("k").complete(model="m", prompt="p")
         assert not isinstance(excinfo.value, RateLimited)
 
+    def test_gemini_503_is_transient(self, post):
+        """« High demand » : Google sature un instant, la requête n'y est pour rien."""
+        post(response(503, '{"error":{"code":503,"status":"UNAVAILABLE"}}'))
+        with pytest.raises(TransientError):
+            GeminiProvider("k").complete(model="m", prompt="p")
+
     def test_gemini_429_is_rate_limited(self, post):
         post(response(429, GEMINI_429))
         with pytest.raises(RateLimited) as excinfo:

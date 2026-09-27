@@ -23,6 +23,12 @@ TIMEOUT = httpx.Timeout(60.0, connect=10.0)
 #: 18.05s ») en plus de l'en-tête `retry-after`, qu'il n'envoie pas toujours.
 _RETRY_IN = re.compile(r"try again in ([\d.]+)s", re.IGNORECASE)
 
+# `reasoning_effort` est laissé à sa valeur par défaut, délibérément. En
+# « low », gpt-oss-120b sort trois fois moins de tokens (~280 contre ~790 par
+# fit-check), mais sur 16 offres déjà notées, 3 ont changé de côté du seuil —
+# dont une passée de 20 à 72, soit une lettre Opus pour rien. À l'effort par
+# défaut, une seule a basculé.
+
 
 def retry_delay(response: httpx.Response) -> float | None:
     """Délai d'attente annoncé par Groq, en secondes, ou `None`."""

@@ -82,6 +82,13 @@ class GeminiProvider:
             )
             if exc.response.status_code == 429:
                 raise RateLimited(message, retry_delay(exc.response)) from exc
+            if exc.response.status_code == 503:
+                # « This model is currently experiencing high demand » : une
+                # saturation passagère du côté de Google, pas un refus de la
+                # requête. Mesuré sur les modèles flash du tier gratuit, elle
+                # touche un appel sur deux aux heures chargées ; le même appel
+                # passe souvent quelques secondes plus tard.
+                raise TransientError(message) from exc
             raise ProviderError(message) from exc
         except httpx.TransportError as exc:
             raise TransientError(f"gemini: {exc.__class__.__name__} — {exc}") from exc
