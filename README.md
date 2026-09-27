@@ -156,9 +156,11 @@ d'enregistrer :
 
 - **Préparer une candidature** : fit-check sans la porte Jev, puis l'offre est
   retenue **quel que soit le score**. Vous l'avez déjà choisie ; le verdict
-  sert seulement à la lettre (langue, donc CV, atouts et manques). La prochaine
-  passe `draft` la rédige. Si le fit-check échoue (quota, réseau), l'offre reste
-  enregistrée et se relance depuis sa fiche.
+  sert seulement à la lettre (langue, donc CV, atouts et manques). Le
+  fit-check tourne en arrière-plan, comme une passe (« Fit-check manuel ») : la
+  page de suivi montre le verdict, puis renvoie vers la fiche. La prochaine
+  passe `draft` rédige la lettre. Si le fit-check échoue (quota, réseau),
+  l'offre reste enregistrée et se relance depuis sa fiche.
 - **Suivre seulement** : état `tracked`, sans appel LLM. On la déclare envoyée,
   on l'abandonne, ou on la prépare plus tard.
 

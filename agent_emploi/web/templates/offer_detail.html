@@ -35,7 +35,7 @@
   <h2>Actions</h2>
   {% if can.prepare %}
   <form method="post" action="/offres/{{ d.id }}/preparer" class="form-row">
-    <span class="muted small">Fit-check (tier gratuit), puis retenue quel que soit le score : la lettre s'en nourrit.</span>
+    <span class="muted small">Fit-check (tier gratuit) en arrière-plan, puis retenue quel que soit le score : la lettre s'en nourrit.</span>
     <button type="submit" class="primary">{{ 'Relancer l’évaluation' if d.entry.state.value == 'prescreened' else 'Préparer une candidature' }}</button>
   </form>
   {% elif tracked_without_text %}

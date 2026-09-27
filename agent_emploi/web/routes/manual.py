@@ -103,15 +103,17 @@ def create_offer(
             )
         if action == "track":
             return RedirectResponse(f"/offres/{job.id}?fait=suivie", status_code=303)
+        # Sous le même verrou que l'ajout : aucune passe ne peut s'intercaler
+        # entre l'enregistrement de l'offre et le lancement de son fit-check.
         try:
-            actions.prepare(
+            run = actions.start_prepare(
                 job.id,
                 seen=stores.seen(),
                 jobs=stores.jobs(),
+                config=request.app.state.config,
+                runner=request.app.state.runner,
                 fit_agent=request.app.state.fit_agent,
             )
         except actions.ActionRefused as exc:
-            # L'offre existe : on montre sa fiche, avec la raison de l'échec et
-            # le bouton pour relancer.
             return render_detail(request, job.id, error=str(exc))
-    return RedirectResponse(f"/offres/{job.id}?fait=preparee", status_code=303)
+    return RedirectResponse(f"/passes/{run.id}", status_code=303)

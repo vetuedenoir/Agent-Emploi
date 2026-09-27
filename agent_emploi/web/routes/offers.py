@@ -18,7 +18,6 @@ NOTICES = {
     "envoyee": "Envoi enregistré.",
     "archivee": "Candidature archivée dans applications/.",
     "suivie": "Offre ajoutée au suivi.",
-    "preparee": "Offre retenue : la prochaine passe `draft` rédigera sa lettre.",
 }
 
 

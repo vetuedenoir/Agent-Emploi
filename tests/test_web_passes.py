@@ -111,6 +111,14 @@ class TestRunner:
         assert run.status == "ok"
 
 
+    def test_task_keeps_its_link_across_restarts(self, runner, config):
+        runner.start_task("prepare", "Fit-check manuel", lambda: 0, link=("/offres/x", "Fiche"))
+        runner.join(5)
+        (run,) = PassRunner(config, commands={}).history()
+        assert run.link == ("/offres/x", "Fiche")
+        assert run.status == "ok"
+
+
 class TestPages:
     def test_start_redirects_to_log(self, client, runner):
         response = client.post("/passes/print", data={"limit": "3"}, follow_redirects=False)

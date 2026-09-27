@@ -1,5 +1,7 @@
 """Ajout manuel depuis l'interface : pré-remplissage, préparation, suivi."""
 
+import threading
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -38,6 +40,11 @@ def client(config, fit):
     return TestClient(
         create_app(config, fit_agent=lambda: fit), base_url="http://127.0.0.1"
     )
+
+
+def finish(client) -> None:
+    """Attend la fin du fit-check, lancé en arrière-plan."""
+    client.app.state.runner.join(5)
 
 
 def form(action: str, **fields) -> dict:
@@ -100,12 +107,21 @@ def test_track_creates_offer_without_llm(client, config, fit):
     assert "Préparer une candidature" in page
 
 
-def test_prepare_retains_whatever_the_score(client, config, fit):
+def test_prepare_runs_in_background_and_retains_whatever_the_score(client, config, fit):
     response = client.post("/offres/nouvelle", data=form("prepare"), follow_redirects=False)
     assert response.status_code == 303
+    assert response.headers["location"].startswith("/passes/")
+    finish(client)
+
     job_id = only_id(config)
     assert SeenStore(config.paths.seen_file).get(job_id).state is JobState.FIT_OK
     assert JobStore(config.paths.jobs_file).get(job_id).fit.score == 30
+
+    log = client.get(response.headers["location"]).text
+    assert "[ 30] skip" in log
+    assert f'href="/offres/{job_id}"' in log
+    # Le serveur voit ce que la passe a écrit, sans redémarrer.
+    assert "retenue" in client.get(f"/offres/{job_id}").text
 
 
 def test_prepare_requires_description(client, config):
@@ -128,9 +144,45 @@ def test_fit_failure_keeps_offer_and_offers_retry(config):
         create_app(config, fit_agent=lambda: failing), base_url="http://127.0.0.1"
     )
     response = client.post("/offres/nouvelle", data=form("prepare"))
-    assert "quota épuisé" in response.text
-    assert "Relancer l’évaluation" in response.text
-    assert SeenStore(config.paths.seen_file).get(only_id(config)).state is JobState.PRESCREENED
+    finish(client)
+    log = client.get(str(response.url)).text
+    assert "quota épuisé" in log
+    assert "terminée avec erreurs" in log
+
+    job_id = only_id(config)
+    assert SeenStore(config.paths.seen_file).get(job_id).state is JobState.PRESCREENED
+    assert "Relancer l’évaluation" in client.get(f"/offres/{job_id}").text
+
+    failing.error = None
+    client.post(f"/offres/{job_id}/preparer")
+    finish(client)
+    assert SeenStore(config.paths.seen_file).get(job_id).state is JobState.FIT_OK
+
+
+def test_prepare_refused_while_a_pass_runs(client, config):
+    client.post("/offres/nouvelle", data=form("track"))
+    job_id = only_id(config)
+    release = threading.Event()
+
+    def wait() -> int:
+        release.wait(5)
+        return 0
+
+    client.app.state.runner.start_task("wait", "Attente", wait)
+    try:
+        response = client.post(f"/offres/{job_id}/preparer")
+        assert response.status_code == 409
+        assert "une passe est en cours" in response.text
+    finally:
+        release.set()
+        finish(client)
+    assert SeenStore(config.paths.seen_file).get(job_id).state is JobState.TRACKED
+
+
+def test_offer_without_description_cannot_be_prepared(client, config):
+    client.post("/offres/nouvelle", data=form("track", description=""))
+    response = client.post(f"/offres/{only_id(config)}/preparer")
+    assert response.status_code == 409
 
 
 class TestTrackedActions:
@@ -141,6 +193,7 @@ class TestTrackedActions:
 
     def test_prepare_later(self, client, config, tracked):
         client.post(f"/offres/{tracked}/preparer")
+        finish(client)
         assert SeenStore(config.paths.seen_file).get(tracked).state is JobState.FIT_OK
 
     def test_mark_sent(self, client, config, tracked):

@@ -117,6 +117,9 @@ class PassRun:
     status: str = "running"
     exit_code: int | None = None
     lines: list[str] = field(default_factory=list)
+    #: Page à rouvrir une fois la passe finie (la fiche d'une offre préparée),
+    #: sous la forme (adresse, libellé).
+    link: tuple[str, str] | None = None
 
     @property
     def running(self) -> bool:
@@ -147,6 +150,7 @@ class PassRun:
             "status": self.status,
             "exit_code": self.exit_code,
             "lines": self.lines[-TAIL_LINES:],
+            "link": list(self.link) if self.link else None,
         }
 
     @classmethod
@@ -162,6 +166,7 @@ class PassRun:
             status=data.get("status", "ok"),
             exit_code=data.get("exit_code"),
             lines=data.get("lines", []),
+            link=tuple(data["link"]) if data.get("link") else None,
         )
         if data.get("finished"):
             run.finished = datetime.fromisoformat(data["finished"])
@@ -225,14 +230,14 @@ class PassRunner:
         config: Config,
         *,
         commands: dict[str, PassSpec] | None = None,
-        write_lock: threading.Lock | None = None,
+        write_lock: threading.RLock | None = None,
     ) -> None:
         self.config = config
         self.commands = commands if commands is not None else _commands()
         #: Le verrou d'écriture des stores, pris pour démarrer : une action
         #: commencée finit avant que la passe ne parte, et une action qui le
         #: prend ensuite voit la passe en cours.
-        self.write_lock = write_lock or threading.Lock()
+        self.write_lock = write_lock or threading.RLock()
         self.path = config.paths.data / "passes.jsonl"
         self._lock = threading.Lock()
         self._current: PassRun | None = None
@@ -293,13 +298,32 @@ class PassRunner:
             limit=limit if "limit" in spec.options else None,
             letters=letters if "letters" in spec.options else None,
         )
+        return self._launch(run, spec.run)
+
+    def start_task(
+        self,
+        name: str,
+        label: str,
+        task: Callable[[], int],
+        *,
+        link: tuple[str, str] | None = None,
+    ) -> PassRun:
+        """Démarre une passe ponctuelle, hors des commandes proposées.
+
+        Même régime que les autres : une à la fois, sortie capturée, bilan
+        gardé. C'est ce qui sert au fit-check d'une offre ajoutée à la main.
+        """
+        run = PassRun(id=uuid4().hex[:12], name=name, label=label, link=link)
+        return self._launch(run, lambda config, dry_run, limit, letters: task())
+
+    def _launch(self, run: PassRun, command: Callable[..., int]) -> PassRun:
         with self.write_lock, self._lock:
             if self._current is not None:
                 raise PassBusy(f"une passe est déjà en cours : {self._current.label}")
             self._current = run
 
         self._thread = threading.Thread(
-            target=self._execute, args=(spec, run), name=f"passe-{name}", daemon=True
+            target=self._execute, args=(command, run), name=f"passe-{run.name}", daemon=True
         )
         self._thread.start()
         return run
@@ -309,7 +333,7 @@ class PassRunner:
         if self._thread is not None:
             self._thread.join(timeout)
 
-    def _execute(self, spec: PassSpec, run: PassRun) -> None:
+    def _execute(self, command: Callable[..., int], run: PassRun) -> None:
         thread_id = threading.get_ident()
         stdout = _Capture(sys.stdout, thread_id, run.lines.append)
         stderr = _Capture(sys.stderr, thread_id, run.lines.append)
@@ -323,7 +347,7 @@ class PassRunner:
         root.addHandler(handler)
         sys.stdout, sys.stderr = stdout, stderr
         try:
-            code = spec.run(self.config, run.dry_run, run.limit, run.letters)
+            code = command(self.config, run.dry_run, run.limit, run.letters)
             run.exit_code = code
             run.status = "ok" if code == 0 else "failed"
         except BaseException:  # noqa: BLE001 — une passe ne doit pas tuer le serveur

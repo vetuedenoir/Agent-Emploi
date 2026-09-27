@@ -114,10 +114,21 @@ def archive(request: Request, job_id: str):
 
 @router.post("/offres/{job_id}/preparer")
 def prepare(request: Request, job_id: str):
-    fit_agent = request.app.state.fit_agent
-    return _run(
-        request,
-        job_id,
-        "preparee",
-        lambda **stores: actions.prepare(job_id, fit_agent=fit_agent, **stores),
-    )
+    """Lance le fit-check en arrière-plan et ouvre son suivi."""
+    stores = request.app.state.stores
+    with stores.write_lock:
+        refusal = busy_refusal(request)
+        if refusal:
+            return render_detail(request, job_id, status_code=409, error=refusal)
+        try:
+            run = actions.start_prepare(
+                job_id,
+                seen=stores.seen(),
+                jobs=stores.jobs(),
+                config=request.app.state.config,
+                runner=request.app.state.runner,
+                fit_agent=request.app.state.fit_agent,
+            )
+        except actions.ActionRefused as exc:
+            return render_detail(request, job_id, status_code=409, error=str(exc))
+    return RedirectResponse(f"/passes/{run.id}", status_code=303)

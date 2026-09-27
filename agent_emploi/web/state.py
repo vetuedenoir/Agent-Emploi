@@ -35,8 +35,9 @@ class Stores:
         self._lock = threading.Lock()
         #: Sérialise les écritures : les routes tournent dans un pool de
         #: threads, et deux clics rapprochés ne doivent pas valider deux fois la
-        #: même transition.
-        self.write_lock = threading.Lock()
+        #: même transition. Réentrant : une route qui le tient peut lancer une
+        #: passe, qui le reprend pour démarrer.
+        self.write_lock = threading.RLock()
         self._seen: SeenStore | None = None
         self._seen_sig: tuple[int, int] | None = None
         self._jobs: JobStore | None = None

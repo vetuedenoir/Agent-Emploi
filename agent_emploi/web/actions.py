@@ -26,6 +26,7 @@ from agent_emploi.review_cli import Pending, approve, concerns, reject
 from agent_emploi.store.archive import ARCHIVABLE, archive_and_save
 from agent_emploi.store.jobs import JobStore
 from agent_emploi.store.seen import SeenStore
+from agent_emploi.web.passes import PassBusy, PassRun, PassRunner
 
 #: États où la lettre peut encore changer. Au-delà, elle a été collée dans un
 #: formulaire : la modifier ici ne changerait pas ce qui est parti.
@@ -197,30 +198,76 @@ def declare_sent(
     mark_submitted(job_id, seen=seen, job_store=jobs, note=note)
 
 
-def prepare(
+def start_prepare(
     job_id: str,
     *,
     seen: SeenStore,
     jobs: JobStore,
+    config: Config,
+    runner: PassRunner,
     fit_agent: Callable[[], FitAgent],
-) -> None:
-    """Fait passer une offre manuelle au fit-check, qui la retient d'office.
+) -> PassRun:
+    """Lance le fit-check d'une offre manuelle en arrière-plan.
 
-    `fit_agent` est une fabrique : construire le routeur lit le CV et les clés,
-    ce qui n'a pas à se faire pour afficher une page. Un échec du LLM laisse
-    l'offre en pré-filtrage, et le message dit qu'elle se relance d'ici.
+    L'offre est vérifiée ici, avant de partir : un refus doit s'afficher sur la
+    fiche, pas au fond du journal d'une passe. La passe revérifie de toute
+    façon, sur les journaux relus.
     """
-    try:
-        manual.prepare(job_id, seen=seen, jobs=jobs, fit_agent=fit_agent())
-    except manual.NotPreparable as exc:
-        raise ActionRefused(str(exc)) from exc
-    except FileNotFoundError as exc:
-        raise ActionRefused(str(exc)) from exc
-    except (LlmError, BudgetExceeded) as exc:
+    entry, record = _load(job_id, seen, jobs)
+    if not allowed(entry, record).prepare:
         raise ActionRefused(
-            f"fit-check impossible pour l'instant ({exc}) — l'offre est "
-            "enregistrée, relancez l'évaluation plus tard"
-        ) from exc
+            "seule une offre ajoutée à la main, avec sa description, se prépare"
+        )
+    try:
+        return runner.start_task(
+            "prepare",
+            "Fit-check manuel",
+            prepare_task(job_id, config=config, fit_agent=fit_agent),
+            link=(f"/offres/{job_id}", "Voir la fiche de l'offre"),
+        )
+    except PassBusy as exc:
+        raise ActionRefused(str(exc)) from exc
+
+
+def prepare_task(
+    job_id: str, *, config: Config, fit_agent: Callable[[], FitAgent]
+) -> Callable[[], int]:
+    """La passe elle-même : fit-check, puis `FIT_OK` quel que soit le verdict.
+
+    Elle relit les journaux au lieu d'emprunter les stores du serveur, comme
+    une passe CLI : le serveur les rechargera en voyant les fichiers changer.
+    `fit_agent` est une fabrique, appelée ici : construire le routeur lit le CV
+    et les clés, ce qui n'a rien à faire dans la requête.
+    """
+
+    def run() -> int:
+        seen = SeenStore(
+            config.paths.seen_file, dedup_window_days=config.filters.dedup_window_days
+        )
+        jobs = JobStore(config.paths.jobs_file)
+        record = jobs.get(job_id)
+        if record is not None:
+            print(f"Fit-check : {record.job.company} — {record.job.title}")
+        try:
+            verdict = manual.prepare(job_id, seen=seen, jobs=jobs, fit_agent=fit_agent())
+        except (manual.NotPreparable, FileNotFoundError) as exc:
+            print(f"Impossible : {exc}")
+            return 1
+        except (LlmError, BudgetExceeded) as exc:
+            print(f"Fit-check impossible pour l'instant : {exc}")
+            print("L'offre reste enregistrée ; relancez l'évaluation depuis sa fiche.")
+            return 1
+
+        print(f"\n[{verdict.score:>3}] {verdict.verdict} · langue {verdict.language}")
+        print(f"  {verdict.reason}")
+        if verdict.matched:
+            print(f"  atouts : {', '.join(verdict.matched)}")
+        if verdict.gaps:
+            print(f"  manques : {', '.join(verdict.gaps)}")
+        print("\nOffre retenue : la prochaine passe `draft` rédigera sa lettre.")
+        return 0
+
+    return run
 
 
 def archive(job_id: str, *, seen: SeenStore, jobs: JobStore, config: Config) -> Path:
