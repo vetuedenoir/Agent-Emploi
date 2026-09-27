@@ -13,7 +13,8 @@
     <a class="brand" href="/">Agent emploi</a>
     <nav>
       <a href="/" {% if request.url.path == '/' %}aria-current="page"{% endif %}>Tableau de bord</a>
-      <a href="/offres" {% if request.url.path.startswith('/offres') %}aria-current="page"{% endif %}>Offres</a>
+      <a href="/offres" {% if request.url.path.startswith('/offres') and request.url.path != '/offres/nouvelle' %}aria-current="page"{% endif %}>Offres</a>
+      <a href="/offres/nouvelle" {% if request.url.path == '/offres/nouvelle' %}aria-current="page"{% endif %}>Ajouter une offre</a>
     </nav>
   </header>
   <main>

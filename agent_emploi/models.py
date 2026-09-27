@@ -10,7 +10,7 @@ import hashlib
 from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Literal
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
@@ -32,6 +32,9 @@ class JobState(StrEnum):
     PREFILLED = "prefilled"
     SUBMITTED = "submitted"
     HANDOFF = "handoff"
+    #: Offre ajoutée à la main pour mémoire : ni notée ni rédigée, mais suivie
+    #: jusqu'à l'envoi — ou reprise plus tard pour préparer une candidature.
+    TRACKED = "tracked"
     REJECTED = "rejected"
 
 
@@ -56,6 +59,11 @@ ALLOWED_TRANSITIONS: dict[JobState, frozenset[JobState]] = {
     ),
     JobState.SUBMITTED: frozenset(),
     JobState.HANDOFF: frozenset({JobState.SUBMITTED, JobState.REJECTED}),
+    # Une offre suivie se prépare (elle rejoint alors le parcours au
+    # pré-filtrage, sans en subir les filtres), s'envoie à la main, ou s'oublie.
+    JobState.TRACKED: frozenset(
+        {JobState.PRESCREENED, JobState.SUBMITTED, JobState.REJECTED}
+    ),
     JobState.REJECTED: frozenset(),
 }
 
@@ -70,21 +78,41 @@ def check_transition(current: JobState, target: JobState) -> None:
         raise InvalidTransition(f"{current} -> {target} n'est pas autorisé")
 
 
-def canonical_url(url: str) -> str:
+#: Paramètres de pistage, retirés même quand la requête est conservée.
+TRACKING_PARAMS = frozenset(
+    {"ref", "refid", "trk", "trackingid", "src", "source", "from", "fbclid", "gclid"}
+)
+
+
+def canonical_url(url: str, *, keep_query: bool = False) -> str:
     """Normalise une URL pour le calcul d'identifiant.
 
     Retire le fragment, les paramètres de requête (souvent du tracking) et la
     barre oblique finale, pour que la même offre partagée via deux liens
     différents produise le même identifiant.
+
+    `keep_query` sert aux URL collées à la main : chez Indeed
+    (`viewjob?jk=…`), c'est la requête qui désigne l'offre, et la retirer
+    donnerait le même identifiant à toutes. Les paramètres de pistage partent
+    quand même, et les autres sont triés.
     """
     parts = urlsplit(url.strip())
     path = parts.path.rstrip("/") or "/"
-    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, "", ""))
+    query = ""
+    if keep_query:
+        kept = sorted(
+            (key, value)
+            for key, value in parse_qsl(parts.query)
+            if not key.lower().startswith("utm_") and key.lower() not in TRACKING_PARAMS
+        )
+        query = urlencode(kept)
+    return urlunsplit((parts.scheme.lower(), parts.netloc.lower(), path, query, ""))
 
 
-def job_id(source: str, url: str) -> str:
+def job_id(source: str, url: str, *, keep_query: bool = False) -> str:
     """Identifiant stable d'une offre : hash de la source et de l'URL canonique."""
-    digest = hashlib.sha256(f"{source}\n{canonical_url(url)}".encode()).hexdigest()
+    canonical = canonical_url(url, keep_query=keep_query)
+    digest = hashlib.sha256(f"{source}\n{canonical}".encode()).hexdigest()
     return digest[:32]
 
 

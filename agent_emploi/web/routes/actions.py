@@ -92,3 +92,14 @@ def archive(request: Request, job_id: str):
         "archivee",
         lambda **stores: actions.archive(job_id, config=config, **stores),
     )
+
+
+@router.post("/offres/{job_id}/preparer")
+def prepare(request: Request, job_id: str):
+    fit_agent = request.app.state.fit_agent
+    return _run(
+        request,
+        job_id,
+        "preparee",
+        lambda **stores: actions.prepare(job_id, fit_agent=fit_agent, **stores),
+    )

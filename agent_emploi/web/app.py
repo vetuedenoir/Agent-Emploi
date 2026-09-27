@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
@@ -19,9 +20,10 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from agent_emploi.agents.fit import FitAgent
 from agent_emploi.config import Config
 from agent_emploi.web import views
-from agent_emploi.web.routes import actions, offers
+from agent_emploi.web.routes import actions, manual, offers
 from agent_emploi.web.state import Stores
 
 HERE = Path(__file__).parent
@@ -64,9 +66,24 @@ def build_templates() -> Jinja2Templates:
     return templates
 
 
-def create_app(config: Config) -> FastAPI:
+def default_fit_agent(config: Config) -> Callable[[], FitAgent]:
+    """Fabrique du fit-check, construit à la demande comme dans `cmd_screen`."""
+
+    def build() -> FitAgent:
+        from agent_emploi.llm.router import Router
+        from agent_emploi.screen import load_cv_text
+
+        return FitAgent(Router(config), load_cv_text(config), config.fit)
+
+    return build
+
+
+def create_app(
+    config: Config, *, fit_agent: Callable[[], FitAgent] | None = None
+) -> FastAPI:
     app = FastAPI(title="Agent emploi", docs_url=None, redoc_url=None)
     app.state.config = config
+    app.state.fit_agent = fit_agent or default_fit_agent(config)
     app.state.stores = Stores(config)
     app.state.templates = build_templates()
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(LOCAL_HOSTS))
@@ -87,6 +104,8 @@ def create_app(config: Config) -> FastAPI:
             request, "dashboard.html", {"data": data}
         )
 
+    # Avant `offers` : `/offres/nouvelle` serait sinon lu comme un identifiant.
+    app.include_router(manual.router)
     app.include_router(offers.router)
     app.include_router(actions.router)
     return app

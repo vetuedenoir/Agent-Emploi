@@ -29,9 +29,18 @@
 {% if notice %}<p class="banner banner-ok" role="status">{{ notice }}</p>{% endif %}
 {% if error %}<p class="banner banner-ko" role="alert">{{ error }}</p>{% endif %}
 
-{% if can.decide or can.reject or can.mark_sent or can.archive or can.apply_command %}
+{% set tracked_without_text = d.entry and d.entry.state.value == 'tracked' and not (r and r.job.description) %}
+{% if can.decide or can.reject or can.mark_sent or can.archive or can.apply_command or can.prepare or tracked_without_text %}
 <section class="card actions">
   <h2>Actions</h2>
+  {% if can.prepare %}
+  <form method="post" action="/offres/{{ d.id }}/preparer" class="form-row">
+    <span class="muted small">Fit-check (tier gratuit), puis retenue quel que soit le score : la lettre s'en nourrit.</span>
+    <button type="submit" class="primary">{{ 'Relancer l’évaluation' if d.entry.state.value == 'prescreened' else 'Préparer une candidature' }}</button>
+  </form>
+  {% elif tracked_without_text %}
+  <p class="muted small">Pour préparer une candidature, il faut la description de l'offre : ajoutez l'offre à nouveau avec sa description.</p>
+  {% endif %}
   {% if can.decide %}
   <form method="post" action="/offres/{{ d.id }}/approuver" class="form-row">
     <input type="text" name="note" placeholder="Remarque (facultative)" aria-label="Remarque">
@@ -40,8 +49,8 @@
   {% endif %}
   {% if can.reject %}
   <form method="post" action="/offres/{{ d.id }}/rejeter" class="form-row">
-    <input type="text" name="note" placeholder="Motif du rejet — il sert à régler les filtres" aria-label="Motif du rejet">
-    <button type="submit" class="danger">Rejeter</button>
+    <input type="text" name="note" placeholder="{{ 'Motif (facultatif)' if d.entry.state.value == 'tracked' else 'Motif du rejet — il sert à régler les filtres' }}" aria-label="Motif du rejet">
+    <button type="submit" class="danger">{{ 'Abandonner' if d.entry.state.value == 'tracked' else 'Rejeter' }}</button>
   </form>
   {% endif %}
   {% if can.apply_command %}

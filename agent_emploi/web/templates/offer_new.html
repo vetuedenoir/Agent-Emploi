@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Ajouter une offre · Agent emploi{% endblock %}
+{% block content %}
+<h1>Ajouter une offre</h1>
+<p class="muted">Une offre vue ailleurs (LinkedIn, Indeed, site carrière…). Collez son adresse et pré-remplissez : la plupart des sites publient l'offre sous une forme lisible. Sinon, remplissez les champs à la main.</p>
+
+{% if error %}
+<p class="banner banner-ko" role="alert">{{ error }}
+  {% if existing %} — <a href="/offres/{{ existing.id }}">voir la fiche existante</a>{% endif %}
+</p>
+{% endif %}
+{% if prefilled %}<p class="banner banner-ok" role="status">Champs pré-remplis depuis la page : relisez-les avant d'enregistrer.</p>{% endif %}
+{% for note in notes %}<p class="banner banner-warn">{{ note }}</p>{% endfor %}
+
+<form method="post" action="/offres/nouvelle" class="card offer-form">
+  <label>Adresse de l'annonce
+    <span class="form-row">
+      <input type="url" name="url" value="{{ v.url }}" placeholder="https://…" required autofocus>
+      <button type="submit" name="action" value="prefill" formnovalidate>Pré-remplir</button>
+    </span>
+  </label>
+  <div class="field-grid">
+    <label>Intitulé <input type="text" name="title" value="{{ v.title }}"></label>
+    <label>Entreprise <input type="text" name="company" value="{{ v.company }}"></label>
+    <label>Lieu <input type="text" name="location" value="{{ v.location }}"></label>
+    <label>Contrat <input type="text" name="contract" value="{{ v.contract }}" placeholder="Stage, CDI, Alternance…"></label>
+  </div>
+  <label>Lien de candidature, s'il diffère de l'annonce
+    <input type="url" name="apply_url" value="{{ v.apply_url }}" placeholder="https://…">
+  </label>
+  <label>Description
+    <textarea name="description" rows="14" placeholder="Collez le texte de l'annonce : le fit-check et la lettre s'appuient dessus.">{{ v.description }}</textarea>
+  </label>
+  <div class="form-row form-actions">
+    <button type="submit" name="action" value="prepare" class="primary">Préparer une candidature</button>
+    <button type="submit" name="action" value="track">Suivre seulement</button>
+  </div>
+  <p class="muted small">
+    <strong>Préparer</strong> : fit-check sans la porte Jev, puis l'offre est retenue quel que soit le score — vous l'avez déjà choisie ; la prochaine passe <code>draft</code> rédige la lettre.<br>
+    <strong>Suivre</strong> : l'offre entre dans l'historique, sans appel LLM. Vous pourrez la déclarer envoyée, ou la préparer plus tard.
+  </p>
+</form>
+{% endblock %}

@@ -35,6 +35,7 @@ STATE_LABELS: dict[JobState, str] = {
     JobState.PREFILLED: "pré-remplie",
     JobState.SUBMITTED: "envoyée",
     JobState.HANDOFF: "à finir à la main",
+    JobState.TRACKED: "suivie",
     JobState.REJECTED: "rejetée",
 }
 

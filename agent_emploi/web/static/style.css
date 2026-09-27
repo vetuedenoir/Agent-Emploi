@@ -165,3 +165,15 @@ button:hover { border-color: var(--accent); }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
 button.danger { color: var(--ko); border-color: var(--ko); }
 .command { background: var(--neutral-bg); padding: 0.5rem 0.75rem; border-radius: 8px; overflow-x: auto; }
+
+.banner-warn { background: var(--warn-bg); color: var(--warn); }
+.offer-form label { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.9rem; font-weight: 500; }
+.offer-form input[type="url"], .offer-form input[type="text"] { width: 100%; font-weight: 400; }
+.offer-form .form-row input[type="url"] { flex: 1 1 280px; width: auto; }
+.offer-form textarea { font-weight: 400; }
+.field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 1rem; }
+.form-actions { margin-top: 0.5rem; }
+input[type="url"] {
+  font: inherit; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.45rem 0.6rem;
+}

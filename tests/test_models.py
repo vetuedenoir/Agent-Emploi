@@ -1,6 +1,7 @@
 import pytest
 
 from agent_emploi.models import (
+    ALLOWED_TRANSITIONS,
     InvalidTransition,
     Job,
     JobState,
@@ -91,3 +92,27 @@ class TestTransitions:
             check_transition(JobState.SUBMITTED, JobState.DISCOVERED)
         with pytest.raises(InvalidTransition):
             check_transition(JobState.REJECTED, JobState.DISCOVERED)
+
+    def test_tracked_offer_can_be_prepared_sent_or_dropped(self):
+        for target in (JobState.PRESCREENED, JobState.SUBMITTED, JobState.REJECTED):
+            check_transition(JobState.TRACKED, target)
+
+    def test_tracked_offer_cannot_skip_to_a_letter(self):
+        # Préparer passe par le pré-filtrage, donc par le fit-check.
+        for target in (JobState.FIT_OK, JobState.DRAFTED, JobState.APPROVED):
+            with pytest.raises(InvalidTransition):
+                check_transition(JobState.TRACKED, target)
+
+    def test_every_state_has_its_transitions(self):
+        assert set(ALLOWED_TRANSITIONS) == set(JobState)
+
+
+class TestManualQuery:
+    def test_keep_query_drops_only_tracking(self):
+        assert (
+            canonical_url("https://x.com/viewjob?utm_medium=a&jk=9&ref=b", keep_query=True)
+            == "https://x.com/viewjob?jk=9"
+        )
+
+    def test_default_ids_are_unchanged(self):
+        assert canonical_url("https://x.com/viewjob?jk=9") == "https://x.com/viewjob"

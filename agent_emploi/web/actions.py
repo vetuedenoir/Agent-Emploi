@@ -11,10 +11,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
+from agent_emploi import manual
+from agent_emploi.agents.fit import FitAgent
 from agent_emploi.apply.runner import mark_submitted
 from agent_emploi.config import Config
-from agent_emploi.models import JobRecord, JobState, SeenEntry
+from agent_emploi.llm.budget import BudgetExceeded
+from agent_emploi.llm.router import LlmError
+from agent_emploi.models import JobRecord, JobState, SeenEntry, UserDecision, utcnow
 from agent_emploi.outbox import letter_markdown, refresh_preview
 from agent_emploi.profile import BannedPhrases
 from agent_emploi.review_cli import Pending, approve, concerns, reject
@@ -62,6 +67,8 @@ class Allowed:
     reject: bool = False
     mark_sent: bool = False
     archive: bool = False
+    #: Offre ajoutée à la main, à faire passer au fit-check (ou à y repasser).
+    prepare: bool = False
     #: Commande à copier pour l'étape 6, qui reste en CLI : elle ouvre un
     #: navigateur visible et peut demander un mot de passe à l'invite.
     apply_command: str | None = None
@@ -72,19 +79,23 @@ def allowed(entry: SeenEntry | None, record: JobRecord | None) -> Allowed:
         return Allowed()
     state = entry.state
     has_bundle = bool(record.outbox) and Path(record.outbox).exists()
+    tracked = state is JobState.TRACKED
     return Allowed(
         edit_letter=record.letter is not None
         and state in LETTER_EDITABLE
         and record.archive is None,
         decide=state is JobState.AWAITING_USER and has_bundle,
-        reject=state in REJECTABLE and has_bundle,
-        mark_sent=state in SENDABLE and record.application is not None,
+        reject=(state in REJECTABLE and has_bundle) or tracked,
+        # Une offre suivie s'envoie hors du programme : il n'y a pas de
+        # formulaire préparé, seulement la déclaration de l'utilisateur.
+        mark_sent=(state in SENDABLE and record.application is not None) or tracked,
         archive=state in ARCHIVABLE and has_bundle and record.archive is None,
         apply_command=(
             f"python -m agent_emploi apply {record.job.id[:8]}"
             if state is JobState.APPROVED
             else None
         ),
+        prepare=manual.preparable(entry, record.job, has_fit=record.fit is not None),
     )
 
 
@@ -152,6 +163,15 @@ def decide(
     if not approved and not permitted.reject:
         raise ActionRefused(f"rien à rejeter à l'état « {entry.state.value} »")
 
+    if entry.state is JobState.TRACKED:
+        # Pas de dossier : la décision ne vit que dans les journaux.
+        jobs.save(
+            record.job,
+            decision=UserDecision(decision="rejected", at=utcnow(), note=note),
+        )
+        seen.transition(job_id, JobState.REJECTED, f"utilisateur:{note or 'abandonnée'}"[:200])
+        return
+
     item = _pending(record, config)
     if approved:
         banned = BannedPhrases.load(config.profile.banned_phrases)
@@ -169,7 +189,38 @@ def declare_sent(
         raise ActionRefused(
             f"aucun formulaire préparé à déclarer envoyé (état « {entry.state.value} »)"
         )
+    if entry.state is JobState.TRACKED:
+        seen.transition(
+            job_id, JobState.SUBMITTED, f"utilisateur:envoyé{f' — {note}' if note else ''}"[:200]
+        )
+        return
     mark_submitted(job_id, seen=seen, job_store=jobs, note=note)
+
+
+def prepare(
+    job_id: str,
+    *,
+    seen: SeenStore,
+    jobs: JobStore,
+    fit_agent: Callable[[], FitAgent],
+) -> None:
+    """Fait passer une offre manuelle au fit-check, qui la retient d'office.
+
+    `fit_agent` est une fabrique : construire le routeur lit le CV et les clés,
+    ce qui n'a pas à se faire pour afficher une page. Un échec du LLM laisse
+    l'offre en pré-filtrage, et le message dit qu'elle se relance d'ici.
+    """
+    try:
+        manual.prepare(job_id, seen=seen, jobs=jobs, fit_agent=fit_agent())
+    except manual.NotPreparable as exc:
+        raise ActionRefused(str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise ActionRefused(str(exc)) from exc
+    except (LlmError, BudgetExceeded) as exc:
+        raise ActionRefused(
+            f"fit-check impossible pour l'instant ({exc}) — l'offre est "
+            "enregistrée, relancez l'évaluation plus tard"
+        ) from exc
 
 
 def archive(job_id: str, *, seen: SeenStore, jobs: JobStore, config: Config) -> Path:
