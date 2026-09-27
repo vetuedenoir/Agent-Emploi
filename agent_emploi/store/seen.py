@@ -186,6 +186,30 @@ class SeenStore:
 
     # ------------------------------------------------------------------ analyse
 
+    def history(self, job_id: str) -> list[SeenEntry]:
+        """Toutes les transitions d'une offre, de la découverte à l'état actuel.
+
+        L'index ne garde que la dernière ligne de chaque offre : le journal est
+        donc relu en entier. C'est le prix d'une frise, pas celui d'une passe,
+        qui n'en a jamais besoin.
+        """
+        if not self.path.exists():
+            return []
+        steps: list[SeenEntry] = []
+        with self.path.open(encoding="utf-8") as handle:
+            for line in handle:
+                # Filtre textuel avant l'analyse : quelques centaines de lignes
+                # sur des milliers concernent l'offre, les autres sont sautées.
+                if job_id not in line:
+                    continue
+                try:
+                    entry = SeenEntry.model_validate_json(line)
+                except (ValueError, json.JSONDecodeError):
+                    continue
+                if entry.id == job_id:
+                    steps.append(entry)
+        return steps
+
     def count_by_state(self) -> dict[JobState, int]:
         """Répartition des offres par état — utile pour le suivi et les rapports."""
         counts: dict[JobState, int] = {}

@@ -11,6 +11,7 @@ rédaction, validation, puis candidature.
     python -m agent_emploi apply     # remplit les formulaires, sans jamais envoyer
     python -m agent_emploi archive   # classe les candidatures envoyées
     python -m agent_emploi status    # état des offres et consommation LLM
+    python -m agent_emploi web       # interface web locale
 
 `run` enchaîne recherche, filtrage, rédaction et archivage en une commande, et
 s'arrête à votre validation : elle n'ouvre aucun navigateur et n'envoie rien.
@@ -964,6 +965,28 @@ def cmd_status(config: Config) -> int:
     return 0
 
 
+def cmd_web(config: Config, *, port: int) -> int:
+    """Sert l'interface sur `127.0.0.1` seulement.
+
+    L'hôte n'est pas réglable, et c'est délibéré : les pages n'ont pas
+    d'authentification, elles ne doivent pas être joignables depuis le réseau.
+    """
+    try:
+        import uvicorn
+
+        from agent_emploi.web.app import create_app
+    except ImportError:
+        print(
+            f"{FAIL} dépendances web absentes : uv pip install -e \".[web]\"",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"Interface sur http://127.0.0.1:{port} — Ctrl+C pour arrêter")
+    uvicorn.run(create_app(config), host="127.0.0.1", port=port, log_level="warning")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="agent-emploi", description="Recherche et candidature assistées."
@@ -980,6 +1003,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="vérifie l'installation et la configuration")
     sub.add_parser("status", help="état des offres et consommation LLM")
+    web = sub.add_parser("web", help="interface web locale (127.0.0.1)")
+    web.add_argument("--port", type=int, default=8000, help="port d'écoute (8000)")
 
     search = sub.add_parser("search", help="cherche des offres et mémorise les nouvelles")
     search.add_argument(
@@ -1212,6 +1237,8 @@ def main(argv: list[str] | None = None) -> int:
             note=args.note,
             no_llm=args.no_llm,
         )
+    if args.command == "web":
+        return cmd_web(config, port=args.port)
     return {"doctor": cmd_doctor, "status": cmd_status}[args.command](config)
 
 

@@ -124,3 +124,25 @@ def test_count_by_state(store):
 
     counts = store.count_by_state()
     assert counts == {JobState.DISCOVERED: 1, JobState.PRESCREENED: 1}
+
+
+class TestHistory:
+    def test_lists_every_transition_in_order(self, store):
+        job = make_job()
+        other = make_job("https://example.com/jobs/2", title="Data Scientist")
+        store.record(job)
+        store.record(other)
+        store.transition(job.id, JobState.PRESCREENED)
+        store.transition(other.id, JobState.REJECTED, reason="lexical")
+        store.transition(job.id, JobState.REJECTED, reason="fit:skip(20)")
+
+        steps = store.history(job.id)
+        assert [step.state for step in steps] == [
+            JobState.DISCOVERED,
+            JobState.PRESCREENED,
+            JobState.REJECTED,
+        ]
+        assert steps[-1].reason == "fit:skip(20)"
+
+    def test_unknown_job_has_no_history(self, store):
+        assert store.history("inconnu") == []

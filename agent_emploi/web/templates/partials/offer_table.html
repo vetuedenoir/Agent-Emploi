@@ -1,0 +1,34 @@
+{% if rows %}
+<div class="table-wrap">
+<table class="offers">
+  <thead>
+    <tr>
+      <th>Offre</th>
+      <th>État</th>
+      <th class="num">Score</th>
+      {% if not compact %}<th>Motif</th><th>Source</th>{% endif %}
+      <th>Dernier changement</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td class="offer-cell">
+        <a href="/offres/{{ row.id }}" class="offer-title">{{ row.entry.title }}</a>
+        <span class="offer-meta">{{ row.entry.company }}{% if row.location %} · {{ row.location }}{% endif %}{% if row.contract %} · {{ row.contract }}{% endif %}</span>
+      </td>
+      <td>{% with state=row.entry.state %}{% include "partials/state.html" %}{% endwith %}</td>
+      <td class="num">{{ row.score if row.score is not none else '—' }}</td>
+      {% if not compact %}
+      <td class="reason">{{ row.entry.reason or '' }}</td>
+      <td>{{ row.entry.source }}</td>
+      {% endif %}
+      <td class="date">{{ row.entry.last_state_change | local_time }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="muted">Aucune offre ne correspond.</p>
+{% endif %}

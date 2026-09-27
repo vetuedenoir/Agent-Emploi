@@ -81,10 +81,36 @@ python -m agent_emploi archive             # classe les candidatures envoyées
 python -m agent_emploi archive --dry-run   # liste sans rien déplacer
 python -m agent_emploi status              # état des offres et consommation LLM
 python -m agent_emploi calibrate-gate      # compare les seuils de la porte Jev
+python -m agent_emploi web                 # interface web sur 127.0.0.1:8000
 pytest                                     # tests (réseau et navigateur exclus)
 pytest -m live                             # tests de contrat sur les vraies API
 pytest -m browser                          # tests sur un vrai Chromium
 ```
+
+## Interface web
+
+```bash
+uv pip install -e ".[web]"
+python -m agent_emploi web --port 8000
+```
+
+Le serveur n'écoute que sur `127.0.0.1` : les pages n'ont pas
+d'authentification. Il appelle les mêmes fonctions que la CLI et relit
+`seen.jsonl` et `jobs.jsonl` dès qu'ils changent. Une passe lancée dans un
+terminal apparaît donc sans redémarrage.
+
+- **Tableau de bord** : offres par état, dossiers en attente, consommation du
+  jour, dernière activité.
+- **Offres** : l'historique complet, rejets et motifs compris. Il se filtre
+  par état, source et période, se trie par date ou par score, et se cherche
+  par entreprise ou intitulé à la frappe (sans tenir compte des accents).
+- **Fiche d'une offre** : liens vers l'annonce et la candidature, description,
+  verdicts (Jev, adéquation, relecture), décision, résultat du remplissage,
+  dossiers, et la frise de toutes les transitions. La lettre affichée est
+  `lettre.md` quand le dossier existe, puisque c'est lui qui fait foi.
+
+Pour l'instant, l'interface est en lecture seule. Les décisions passent
+encore par `review` et `apply`.
 
 ## Filtrage
 
@@ -509,7 +535,7 @@ agent_emploi/
   models.py      Job, JobState, machine à états, identifiants
   config.py      chargement et validation de config.yaml, lecture de .env
   cli.py         doctor / search / screen / draft / review / apply / run /
-                 archive / status
+                 archive / status / web
   manager.py     la boucle bout en bout, jusqu'à votre validation — et pas plus
   search.py      passe de recherche : découverte et mémorisation
   filters.py     pré-filtrage déterministe, score lexical CV <-> offre
@@ -534,6 +560,7 @@ agent_emploi/
   store/jobs.py  offres retenues : verdict, lettre, revue, dossier
   store/archive.py  classement des candidatures closes + fiche de suivi
   llm/           routeur, budget, fournisseurs (anthropic, groq, gemini)
+  web/           interface locale : FastAPI + Jinja2 + htmx (vendu, sans CDN)
 config.yaml      tout le réglable : requêtes, filtres, modèles, plafonds
 profile/         CV, voix, formules interdites, état civil
 outbox/          dossiers en cours, en attente de décision ou d'envoi

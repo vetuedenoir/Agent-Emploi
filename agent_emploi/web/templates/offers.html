@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Offres · Agent emploi{% endblock %}
+{% block content %}
+<h1>Offres</h1>
+
+<form class="filters" action="/offres" method="get"
+      hx-get="/offres" hx-target="#rows" hx-push-url="true"
+      hx-trigger="input from:#q delay:300ms, search from:#q, change">
+  <input id="q" type="search" name="q" value="{{ filters.q }}"
+         placeholder="Entreprise ou intitulé…" aria-label="Rechercher" autocomplete="off" autofocus>
+  <select name="state" aria-label="État">
+    <option value="">Tous les états</option>
+    {% for state in states %}
+    <option value="{{ state.value }}" {% if filters.state == state.value %}selected{% endif %}>{{ STATE_LABELS[state] }}</option>
+    {% endfor %}
+  </select>
+  <select name="source" aria-label="Source">
+    <option value="">Toutes les sources</option>
+    {% for source in sources %}
+    <option value="{{ source }}" {% if filters.source == source %}selected{% endif %}>{{ source }}</option>
+    {% endfor %}
+  </select>
+  <select name="days" aria-label="Période">
+    <option value="">Depuis toujours</option>
+    {% for days in periods %}
+    <option value="{{ days }}" {% if filters.days == days %}selected{% endif %}>{{ days }} derniers jours</option>
+    {% endfor %}
+  </select>
+  <select name="sort" aria-label="Tri">
+    <option value="date" {% if filters.sort == 'date' %}selected{% endif %}>Plus récentes</option>
+    <option value="score" {% if filters.sort == 'score' %}selected{% endif %}>Mieux notées</option>
+  </select>
+  <noscript><button type="submit">Filtrer</button></noscript>
+</form>
+
+<div id="rows">
+  {% include "partials/offer_rows.html" %}
+</div>
+{% endblock %}

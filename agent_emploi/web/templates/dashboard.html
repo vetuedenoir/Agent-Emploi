@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Tableau de bord</h1>
+
+<section class="tiles">
+  <a class="tile" href="/offres">
+    <span class="tile-value">{{ data.total }}</span>
+    <span class="tile-label">offres connues</span>
+  </a>
+  <a class="tile {% if data.pending %}tile-alert{% endif %}" href="/offres?state=awaiting_user">
+    <span class="tile-value">{{ data.pending }}</span>
+    <span class="tile-label">dossiers en attente de décision</span>
+  </a>
+  <div class="tile">
+    <span class="tile-value">{{ '%.4f' | format(data.budget.spent_usd) }} $</span>
+    <span class="tile-label">dépensés aujourd'hui · plafond {{ '%.2f' | format(data.budget.config.daily_usd) }} $</span>
+  </div>
+  <div class="tile">
+    <span class="tile-value">{{ data.budget.calls }}</span>
+    <span class="tile-label">appels LLM aujourd'hui · plafond {{ data.budget.config.daily_calls }}</span>
+  </div>
+</section>
+
+<section>
+  <h2>Offres par état</h2>
+  {% if data.counts %}
+  <ul class="counts">
+    {% for state, count in data.counts %}
+    <li><a href="/offres?state={{ state.value }}">{% with state=state %}{% include "partials/state.html" %}{% endwith %}<span class="count">{{ count }}</span></a></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">Aucune offre pour l'instant : lancer <code>python -m agent_emploi search</code>.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Dernière activité</h2>
+  {% with rows=data.recent, compact=True %}{% include "partials/offer_table.html" %}{% endwith %}
+</section>
+{% endblock %}

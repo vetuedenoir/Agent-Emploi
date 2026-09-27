@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}{{ d.title }} · Agent emploi{% endblock %}
+{% block content %}
+{% set r = d.record %}
+<p class="crumbs"><a href="/offres">← Offres</a></p>
+
+<header class="offer-head">
+  <h1>{{ d.title }}</h1>
+  <p class="offer-sub">
+    {{ d.company }}
+    {% if r and r.job.location %} · {{ r.job.location }}{% endif %}
+    {% if r and r.job.contract %} · {{ r.job.contract }}{% endif %}
+    {% if r and r.job.remote and r.job.remote != 'unknown' %} · télétravail : {{ r.job.remote }}{% endif %}
+    {% if r and r.job.salary %} · {{ r.job.salary }}{% endif %}
+  </p>
+  <p class="offer-state">
+    {% if d.entry %}{% with state=d.entry.state %}{% include "partials/state.html" %}{% endwith %}
+    {% if d.entry.reason %}<span class="reason">{{ d.entry.reason }}</span>{% endif %}
+    {% else %}<span class="muted">absente de la mémoire des offres</span>{% endif %}
+  </p>
+  <p class="links">
+    {% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener noreferrer">Voir l'annonce ↗</a>{% endif %}
+    {% if r and r.job.apply_url and r.job.apply_url != d.url %}
+    <a href="{{ r.job.apply_url }}" target="_blank" rel="noopener noreferrer">Candidater{% if r.job.ats %} ({{ r.job.ats }}){% endif %} ↗</a>
+    {% endif %}
+  </p>
+</header>
+
+{% if d.concerns %}
+<section class="card card-warn">
+  <h2>Réserves avant décision</h2>
+  <ul>{% for c in d.concerns %}<li>{{ c }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+<div class="detail-grid">
+<div class="detail-main">
+
+  {% if d.letter %}
+  <section class="card">
+    <h2>Lettre
+      <span class="muted small">
+        {{ d.letter.split() | length }} mots ·
+        {% if d.letter_origin == 'outbox' %}lue depuis <code>lettre.md</code>{% else %}version enregistrée dans <code>jobs.jsonl</code>{% endif %}
+        {% if r.letter and r.letter.edited %} · corrigée à la main{% endif %}
+      </span>
+    </h2>
+    <div class="prose">{{ d.letter }}</div>
+    {% if r.letter and r.letter.banned_hits %}
+    <p class="warn">Formules interdites : {{ r.letter.banned_hits | join(', ') }}</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <section class="card">
+    <h2>Description</h2>
+    {% if r and r.job.description %}
+    <div class="prose">{{ r.job.description }}</div>
+    {% else %}
+    <p class="muted">Description non récupérée : l'offre a été écartée avant l'enrichissement.</p>
+    {% endif %}
+  </section>
+</div>
+
+<aside class="detail-side">
+  {% if r and r.gate %}
+  <section class="card">
+    <h2>Porte Jev <span class="verdict {{ 'ok' if r.gate.passed else 'ko' }}">{{ 'passée' if r.gate.passed else 'écartée' }}</span></h2>
+    <dl>
+      <dt>Adéquation</dt><dd>{{ '%.2f' | format(r.gate.adequation) }} / 3</dd>
+      <dt>Expérience bloquante</dt><dd>{{ '%.0f' | format(r.gate.experience_blocking * 100) }} %</dd>
+      {% if r.gate.contract_ok is not none %}<dt>Contrat compatible</dt><dd>{{ '%.0f' | format(r.gate.contract_ok * 100) }} %</dd>{% endif %}
+      {% if r.gate.reason %}<dt>Motif</dt><dd><code>{{ r.gate.reason }}</code></dd>{% endif %}
+    </dl>
+  </section>
+  {% endif %}
+
+  {% if r and r.fit %}
+  <section class="card">
+    <h2>Adéquation <span class="verdict {{ r.fit.verdict }}">{{ r.fit.score }} · {{ r.fit.verdict }}</span></h2>
+    <p>{{ r.fit.reason }}</p>
+    {% if r.fit.matched %}<h3>Points forts</h3><ul>{% for m in r.fit.matched %}<li>{{ m }}</li>{% endfor %}</ul>{% endif %}
+    {% if r.fit.gaps %}<h3>Manques</h3><ul>{% for g in r.fit.gaps %}<li>{{ g }}</li>{% endfor %}</ul>{% endif %}
+    <p class="muted small">Langue : {{ r.fit.language }}{% if r.lexical_score is not none %} · score lexical {{ '%.3f' | format(r.lexical_score) }}{% endif %}</p>
+  </section>
+  {% elif r and r.lexical_score is not none %}
+  <section class="card"><h2>Pré-filtrage</h2><p>Score lexical {{ '%.3f' | format(r.lexical_score) }}</p></section>
+  {% endif %}
+
+  {% if r and r.review %}
+  <section class="card">
+    <h2>Relecture <span class="verdict {{ 'ok' if r.review.approved else 'ko' }}">{{ 'validée' if r.review.approved else 'refusée' }}</span></h2>
+    {% if r.review.issues %}<ul>{% for i in r.review.issues %}<li>{{ i }}</li>{% endfor %}</ul>{% endif %}
+    {% if r.review.unsupported_claims %}<h3>Affirmations absentes du CV</h3><ul>{% for c in r.review.unsupported_claims %}<li>{{ c }}</li>{% endfor %}</ul>{% endif %}
+  </section>
+  {% endif %}
+
+  {% if r and r.decision %}
+  <section class="card">
+    <h2>Décision <span class="verdict {{ 'ok' if r.decision.decision == 'approved' else 'ko' }}">{{ 'approuvée' if r.decision.decision == 'approved' else 'rejetée' }}</span></h2>
+    <p class="muted small">{{ r.decision.at | local_time }}{% if r.decision.letter_edited %} · lettre corrigée{% endif %}</p>
+    {% if r.decision.note %}<p>{{ r.decision.note }}</p>{% endif %}
+    {% if r.decision.concerns %}<h3>Réserves au moment de décider</h3><ul>{% for c in r.decision.concerns %}<li>{{ c }}</li>{% endfor %}</ul>{% endif %}
+  </section>
+  {% endif %}
+
+  {% if r and r.application %}
+  {% set a = r.application %}
+  <section class="card">
+    <h2>Candidature <span class="verdict {{ 'ok' if a.submitted else '' }}">{{ 'envoyée' if a.submitted else a.status }}</span></h2>
+    <p class="muted small">{{ a.at | local_time }}{% if a.ats %} · {{ a.ats }}{% endif %}</p>
+    {% if a.filled %}<h3>Champs remplis</h3><p>{{ a.filled | join(', ') }}</p>{% endif %}
+    {% if a.todo %}<h3>À remplir à la main</h3><p>{{ a.todo | join(', ') }}</p>{% endif %}
+    {% if a.blockers %}<h3>Blocages</h3><ul>{% for b in a.blockers %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
+  </section>
+  {% endif %}
+
+  {% if r and (r.outbox or r.archive) %}
+  <section class="card">
+    <h2>Dossiers</h2>
+    <dl>
+      {% if r.outbox %}<dt>Outbox</dt><dd><code>{{ r.outbox }}</code></dd>{% endif %}
+      {% if r.archive %}<dt>Archive</dt><dd><code>{{ r.archive }}</code></dd>{% endif %}
+    </dl>
+  </section>
+  {% endif %}
+
+  <section class="card">
+    <h2>Parcours</h2>
+    {% if d.history %}
+    <ol class="timeline">
+      {% for step in d.history %}
+      <li>
+        {% with state=step.state %}{% include "partials/state.html" %}{% endwith %}
+        <time>{{ step.last_state_change | local_time }}</time>
+        {% if step.reason %}<span class="reason">{{ step.reason }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    <p class="muted">Aucune transition enregistrée.</p>
+    {% endif %}
+    <p class="muted small">Source : {{ d.entry.source if d.entry else r.job.source }} · identifiant <code>{{ d.id }}</code></p>
+  </section>
+</aside>
+</div>
+{% endblock %}
