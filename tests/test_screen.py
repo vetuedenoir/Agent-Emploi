@@ -2,7 +2,8 @@ import pytest
 
 from agent_emploi.llm.budget import BudgetExceeded
 from agent_emploi.llm.router import LlmError
-from agent_emploi.models import FitVerdict, Job, JobState
+from agent_emploi.llm.jev import JevError, JevUnavailable
+from agent_emploi.models import FitVerdict, GateVerdict, Job, JobState
 from agent_emploi.screen import load_cv_text, run_screen
 from agent_emploi.store.jobs import JobStore
 from agent_emploi.store.seen import SeenStore
@@ -264,6 +265,98 @@ class TestFailures:
             sources={},
         )
         assert report.errors == ["source inconnue: fake"]
+
+
+class FakeGate:
+    """Porte scriptée : un verdict (ou une exception) par appel."""
+
+    def __init__(self, results: list) -> None:
+        self.results = list(results)
+        self.seen: list[str] = []
+
+    def evaluate(self, job: Job) -> GateVerdict:
+        self.seen.append(job.id)
+        result = self.results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+def gate_verdict(passed: bool = True, reason: str | None = None) -> GateVerdict:
+    return GateVerdict(
+        adequation=2.0 if passed else 0.5,
+        experience_blocking=0.1,
+        contract_ok=0.9,
+        passed=passed,
+        reason=reason,
+    )
+
+
+class TestGate:
+    def test_rejected_offer_never_reaches_the_llm(self, wired):
+        gate = FakeGate([gate_verdict(False, "jev:experience(0.90)")])
+        agent = FakeAgent([])
+        job = make_job()
+        report = screen(wired, [job], agent, gate=gate)
+
+        assert agent.seen == []
+        assert report.gated == 1
+        assert report.reasons["jev"] == 1
+        _, seen, job_store = wired
+        assert seen.get(job.id).state is JobState.REJECTED
+        assert seen.get(job.id).reason == "jev:experience(0.90)"
+        assert job_store.get(job.id).gate.passed is False
+
+    def test_passed_offer_goes_to_the_fit_check(self, wired):
+        agent = FakeAgent([verdict(score=88)])
+        report = screen(wired, [make_job()], agent, gate=FakeGate([gate_verdict()]))
+
+        assert len(agent.seen) == 1
+        assert len(report.accepted) == 1
+
+    def test_unavailable_account_disables_the_gate_for_the_pass(self, wired):
+        gate = FakeGate([JevUnavailable("HTTP 402")])
+        agent = FakeAgent([verdict(), verdict()])
+        report = screen(wired, [make_job(1), make_job(2)], agent, gate=gate)
+
+        assert len(gate.seen) == 1  # plus sollicitée après le 402
+        assert len(agent.seen) == 2
+        assert report.gated == 0
+        assert any("désactivée" in error for error in report.errors)
+
+    def test_request_error_lets_the_offer_through(self, wired):
+        gate = FakeGate([JevError("422"), gate_verdict()])
+        agent = FakeAgent([verdict(), verdict()])
+        screen(wired, [make_job(1), make_job(2)], agent, gate=gate)
+
+        assert len(gate.seen) == 2
+        assert len(agent.seen) == 2
+
+    def test_budget_stops_the_pass(self, wired):
+        gate = FakeGate([BudgetExceeded("plafond")])
+        agent = FakeAgent([])
+        report = screen(wired, [make_job()], agent, gate=gate)
+
+        assert report.stopped == "plafond"
+        assert agent.seen == []
+
+    def test_previous_gate_verdict_is_not_paid_twice(self, wired):
+        _, _, job_store = wired
+        job = make_job()
+        job_store.save(job.model_copy(update={"description": DESCRIPTION}), gate=gate_verdict())
+        gate = FakeGate([])
+        agent = FakeAgent([verdict()])
+        report = screen(wired, [job], agent, gate=gate)
+
+        assert gate.seen == []
+        assert report.gated == 1
+        assert len(agent.seen) == 1
+
+    def test_dry_run_stores_no_gate_verdict(self, wired):
+        _, _, job_store = wired
+        job = make_job()
+        screen(wired, [job], FakeAgent([verdict()]), gate=FakeGate([gate_verdict()]), record=False)
+        assert job_store.get(job.id) is None
 
 
 class TestLoadCvText:

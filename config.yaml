@@ -84,6 +84,22 @@ filters:
   # Une offre de la même entreprise + même titre revue sous ce délai est un doublon.
   dedup_window_days: 60
 
+gate:
+  # Porte Jev (jevmodel.org), entre le pré-filtrage et le fit-check : un appel
+  # à ~0,0001 $ par offre, qui écarte avant le LLM les offres dont l'expérience
+  # exigée ou le contrat sont bloquants. Clé : JEVMODEL_API_KEY. Sans clé, ou
+  # crédits épuisés, la porte se retire et le fit-check tranche seul.
+  # Laisser à false jusqu'à `calibrate-gate`, qui mesure les seuils ci-dessous
+  # sur les offres déjà notées par le fit-check.
+  enabled: true
+  # Adéquation minimale sur l'échelle Jev : 0 hors périmètre, 1 partielle,
+  # 2 défendable, 3 forte.
+  min_score: 1.0
+  # Probabilité au-delà de laquelle l'expérience exigée est jugée bloquante.
+  max_blocking: 0.7
+  # Probabilité en deçà de laquelle le contrat est jugé hors de search.contracts.
+  min_contract: 0.3
+
 fit:
   # Score minimal du verdict LLM pour passer à la rédaction.
   min_score: 65
@@ -142,6 +158,8 @@ llm:
     "claude-opus-5": { input: 5.0, output: 25.0 }
     "openai/gpt-oss-120b": { input: 0.0, output: 0.0 }
     "gemini-3.5-flash": { input: 0.0, output: 0.0 }
+    # Porte Jev : seule l'entrée est facturée.
+    "jev-latest": { input: 0.042, output: 0.0 }
 
 budget:
   # Plafond de dépense estimée par jour, en dollars. La boucle s'arrête

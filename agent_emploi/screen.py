@@ -5,7 +5,10 @@ voyant que ce que le précédent a laissé passer :
 
 1. `screen_metadata` — gratuit, aucune requête.
 2. `enrich` puis `screen_content` — une requête HTTP par offre.
-3. `FitAgent.evaluate` — un appel LLM par offre.
+3. `GateAgent.evaluate` — un appel Jev par offre, ~0,0001 $, si la porte est
+   activée. Elle n'arrête jamais la passe : clé refusée ou crédits épuisés, elle
+   se retire et le fit-check tranche seul.
+4. `FitAgent.evaluate` — un appel LLM par offre.
 
 Chaque offre est transitionnée dans `seen.jsonl` avec son motif, et les offres
 retenues sont conservées en entier dans `jobs.jsonl` pour l'étape de rédaction.
@@ -21,11 +24,12 @@ from dataclasses import dataclass, field
 from typing import Mapping
 
 from agent_emploi.agents.fit import FitAgent
+from agent_emploi.agents.gate import GateAgent, JevError, JevUnavailable
 from agent_emploi.config import Config
 from agent_emploi.filters import LexicalScorer, screen_content, screen_metadata
 from agent_emploi.llm.budget import BudgetExceeded
 from agent_emploi.llm.router import LlmError
-from agent_emploi.models import FitVerdict, Job, JobState
+from agent_emploi.models import FitVerdict, GateVerdict, Job, JobState
 from agent_emploi.profile import load_cv
 from agent_emploi.sources import REGISTRY, JobSource
 from agent_emploi.store.jobs import JobStore
@@ -47,6 +51,9 @@ class ScreenReport:
     enriched: int = 0
     #: Offres ayant franchi les deux étages déterministes.
     prescreened: int = 0
+    #: Offres jugées par la porte Jev (verdicts repris d'une passe précédente
+    #: compris).
+    gated: int = 0
     #: Offres réellement soumises au LLM.
     evaluated: int = 0
     accepted: list[tuple[Job, FitVerdict]] = field(default_factory=list)
@@ -81,6 +88,7 @@ def run_screen(
     cv_text: str,
     sources: Mapping[str, JobSource] | None = None,
     record: bool = True,
+    gate: GateAgent | None = None,
 ) -> ScreenReport:
     """Filtre, enrichit puis note une liste d'offres.
 
@@ -137,6 +145,31 @@ def run_screen(
             _transition(seen, job, JobState.PRESCREENED, screening.reason, record=record)
             if record:
                 job_store.save(job, lexical_score=screening.lexical_score)
+
+            if gate is not None:
+                try:
+                    gate_verdict = _gate(gate, job, job_store, record=record)
+                except BudgetExceeded as exc:
+                    report.stopped = str(exc)
+                    logger.warning("passe interrompue: %s", exc)
+                    break
+                except JevUnavailable as exc:
+                    # Le compte, pas l'offre : les suivantes échoueraient de
+                    # même. La porte se retire, le fit-check tranche seul.
+                    report.errors.append(f"porte Jev désactivée pour la passe: {exc}")
+                    logger.warning("porte Jev désactivée: %s", exc)
+                    gate = None
+                    gate_verdict = None
+                except JevError as exc:
+                    # Une offre sans verdict de porte n'est pas écartée : elle
+                    # passe au fit-check, comme si la porte n'existait pas.
+                    report.errors.append(f"porte {job.title}: {exc}")
+                    gate_verdict = None
+                if gate_verdict is not None:
+                    report.gated += 1
+                    if not gate_verdict.passed:
+                        reject(job, gate_verdict.reason or "jev")
+                        continue
 
             try:
                 verdict = fit_agent.evaluate(job)
@@ -195,6 +228,23 @@ def run_screen(
 
     report.accepted.sort(key=lambda pair: pair[1].score, reverse=True)
     return report
+
+
+def _gate(
+    gate: GateAgent, job: Job, job_store: JobStore, *, record: bool
+) -> GateVerdict:
+    """Verdict de la porte, repris de `jobs.jsonl` s'il y est déjà.
+
+    Une offre restée en PRESCREENED après un échec du fit-check revient à la
+    passe suivante : la porte l'a déjà jugée, inutile de repayer.
+    """
+    existing = job_store.get(job.id)
+    if existing is not None and existing.gate is not None:
+        return existing.gate
+    verdict = gate.evaluate(job)
+    if record:
+        job_store.save(job, gate=verdict)
+    return verdict
 
 
 def _transition(

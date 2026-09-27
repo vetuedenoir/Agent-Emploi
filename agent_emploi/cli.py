@@ -126,6 +126,18 @@ def _check_providers(config: Config) -> None:
             print(f"{WARN} {provider}: {env_var} absente")
 
 
+def _check_gate(config: Config) -> None:
+    """La porte Jev : désactivée, prête, ou activée sans clé (donc sautée)."""
+    from agent_emploi.agents.gate import API_KEY_ENV
+
+    if not config.gate.enabled:
+        print(f"{OK} jev: porte désactivée (gate.enabled)")
+    elif os.environ.get(API_KEY_ENV):
+        print(f"{OK} jev: {API_KEY_ENV} définie")
+    else:
+        print(f"{WARN} jev: {API_KEY_ENV} absente — porte ignorée, le fit-check tranche seul")
+
+
 def _check_sources(config: Config) -> bool:
     """Sources configurées : existent-elles, et sont-elles utilisables ?
 
@@ -172,6 +184,7 @@ def cmd_doctor(config: Config) -> int:
 
     print("\nClés d'API")
     _check_providers(config)
+    _check_gate(config)
 
     print("\nBudget")
     tracker = BudgetTracker(config.paths.usage_file, config.budget)
@@ -261,6 +274,7 @@ def cmd_screen(
 ) -> int:
     """Cherche, filtre et note : la chaîne complète jusqu'au verdict d'adéquation."""
     from agent_emploi.agents.fit import FitAgent
+    from agent_emploi.agents.gate import GateAgent
     from agent_emploi.llm.router import Router
     from agent_emploi.screen import load_cv_text, run_screen
     from agent_emploi.search import run_search
@@ -292,7 +306,8 @@ def cmd_screen(
         return 1 if search_report.errors else 0
 
     job_store = JobStore(config.paths.jobs_file)
-    agent = FitAgent(Router(config), cv_text, config.fit)
+    router = Router(config)
+    agent = FitAgent(router, cv_text, config.fit)
     report = run_screen(
         config,
         candidates,
@@ -301,6 +316,7 @@ def cmd_screen(
         fit_agent=agent,
         cv_text=cv_text,
         record=not dry_run,
+        gate=GateAgent.from_config(config, cv_text, router.budget),
     )
 
     # Une route cassée produit la même erreur pour chaque offre : on n'en montre
@@ -310,10 +326,11 @@ def cmd_screen(
     if len(report.errors) > 5:
         print(f"{WARN} (+{len(report.errors) - 5} autres erreurs)")
 
+    gated = f", {report.gated} jugées par la porte Jev" if report.gated else ""
     print(
         f"Filtrage: {report.examined} examinées, {report.enriched} détails "
-        f"téléchargés, {report.prescreened} pré-retenues, {report.evaluated} "
-        f"évaluées par le LLM"
+        f"téléchargés, {report.prescreened} pré-retenues{gated}, "
+        f"{report.evaluated} évaluées par le LLM"
     )
     if report.reasons:
         motifs = ", ".join(
@@ -727,6 +744,7 @@ def cmd_run(config: Config, *, limit: int | None, draft_limit: int | None,
             dry_run: bool, ask: bool = True) -> int:
     """La chaîne complète, de la recherche aux dossiers à valider. S'arrête là."""
     from agent_emploi.agents.fit import FitAgent
+    from agent_emploi.agents.gate import GateAgent
     from agent_emploi.agents.letter import LetterAgent
     from agent_emploi.agents.review import ReviewAgent
     from agent_emploi.llm.router import Router
@@ -768,6 +786,7 @@ def cmd_run(config: Config, *, limit: int | None, draft_limit: int | None,
         limit=limit,
         draft_limit=draft_limit,
         record=not dry_run,
+        gate=GateAgent.from_config(config, cv_text, router.budget),
     )
 
     for error in report.errors[:5]:
@@ -782,9 +801,10 @@ def cmd_run(config: Config, *, limit: int | None, draft_limit: int | None,
         )
     if report.screen is not None:
         screen = report.screen
+        gated = f"{screen.gated} jugées par la porte, " if screen.gated else ""
         print(
             f"Filtrage  : {screen.examined} examinées, {screen.prescreened} "
-            f"pré-retenues, {screen.evaluated} évaluées, "
+            f"pré-retenues, {gated}{screen.evaluated} évaluées, "
             f"{len(screen.accepted)} retenues"
         )
     else:
@@ -826,6 +846,66 @@ def cmd_run(config: Config, *, limit: int | None, draft_limit: int | None,
     print(f"\nConsommation LLM — {tracker.summary()}")
 
     return 1 if report.errors and not report.prepared else 0
+
+
+def cmd_calibrate_gate(config: Config, *, sample_size: int) -> int:
+    """Rejoue la porte Jev sur les offres déjà notées, pour en régler les seuils."""
+    from agent_emploi.agents.gate import API_KEY_ENV, GateAgent
+    from agent_emploi.calibrate import collect, fit_accepted, grid, sample
+    from agent_emploi.screen import load_cv_text
+    from agent_emploi.store.jobs import JobStore
+
+    try:
+        cv_text = load_cv_text(config)
+    except FileNotFoundError as exc:
+        print(f"{FAIL} {exc}", file=sys.stderr)
+        return 1
+    tracker = BudgetTracker(config.paths.usage_file, config.budget)
+    gate = GateAgent.from_config(config, cv_text, tracker, force=True)
+    if gate is None:
+        print(f"{FAIL} {API_KEY_ENV} absente (voir .env.example)", file=sys.stderr)
+        return 1
+
+    records = sample(JobStore(config.paths.jobs_file).records(), config.fit, sample_size)
+    if not records:
+        print("Aucune offre notée par le fit-check — lancer `screen` d'abord.")
+        return 1
+
+    cache = config.paths.data / "gate_calibration.jsonl"
+    collected = collect(gate, records, cache)
+    for error in collected.errors[:5]:
+        print(f"{WARN} {error}")
+    if collected.stopped:
+        print(f"{WARN} collecte interrompue — {collected.stopped}")
+
+    verdicts = collected.verdicts
+    labels = {r.job.id: fit_accepted(r, config.fit) for r in records if r.job.id in verdicts}
+    positives = sum(labels.values())
+    negatives = len(labels) - positives
+    print(
+        f"{len(verdicts)} offres jugées ({collected.queried} nouveaux appels, "
+        f"le reste depuis {cache}) : {positives} retenues par le fit, "
+        f"{negatives} refusées"
+    )
+    if not positives or not negatives:
+        print(f"{WARN} échantillon sans offre retenue ou sans offre refusée — "
+              "le tableau ne dit rien")
+
+    print(f"\n  contrat ≥ {config.gate.min_contract:.2f} (gate.min_contract)")
+    print("  adéq. min  expér. max   retenues gardées   refusées écartées")
+    current = (config.gate.min_score, config.gate.max_blocking)
+    for row in grid(verdicts, labels, config.gate.min_contract):
+        mark = "  ◀ config" if (row.min_score, row.max_blocking) == current else ""
+        print(
+            f"  {row.min_score:>9.1f}  {row.max_blocking:>10.1f}   "
+            f"{row.kept:>6}/{positives:<9} {row.cut:>8}/{negatives:<8}{mark}"
+        )
+    print(
+        "\nChoisir la ligne qui garde toutes les offres retenues (ou presque) en "
+        "écartant le plus de refusées, puis reporter ses seuils dans config.yaml."
+    )
+    print(f"\nConsommation — {tracker.summary()}")
+    return 0
 
 
 def cmd_status(config: Config) -> int:
@@ -1006,6 +1086,18 @@ def main(argv: list[str] | None = None) -> int:
         help="laisse une copie du dossier dans outbox/ au lieu de l'y retirer",
     )
 
+    calibrate = sub.add_parser(
+        "calibrate-gate",
+        help="rejoue la porte Jev sur les offres déjà notées et compare les seuils",
+    )
+    calibrate.add_argument(
+        "--sample",
+        type=int,
+        default=35,
+        help="offres rejouées, moitié retenues par le fit si possible "
+        "(défaut: 35, soit ~100k tokens, le crédit offert à l'inscription)",
+    )
+
     apply_cmd = sub.add_parser(
         "apply",
         help="remplit les formulaires des dossiers approuvés (sans jamais envoyer)",
@@ -1095,6 +1187,8 @@ def main(argv: list[str] | None = None) -> int:
             include_rejected=args.include_rejected,
             keep=args.keep,
         )
+    if args.command == "calibrate-gate":
+        return cmd_calibrate_gate(config, sample_size=args.sample)
     if args.command == "review":
         if args.approve and args.reject:
             print(f"{FAIL} --approve et --reject s'excluent", file=sys.stderr)

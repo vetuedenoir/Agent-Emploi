@@ -148,6 +148,25 @@ class FitVerdict(BaseModel):
     language: Literal["fr", "en"]
 
 
+class GateVerdict(BaseModel):
+    """Verdict de la porte Jev, rendu avant le fit-check.
+
+    Des nombres, pas de texte : Jev ne rédige pas. Les probabilités sont celles
+    d'un « oui » à la question posée ; `contract_ok` est absent quand aucune
+    liste de contrats n'est configurée, la question n'ayant alors pas été posée.
+    """
+
+    #: Position sur l'échelle d'adéquation, fractionnaire (0 = hors périmètre).
+    adequation: float
+    experience_blocking: float = Field(ge=0.0, le=1.0)
+    contract_ok: float | None = Field(default=None, ge=0.0, le=1.0)
+    passed: bool
+    #: Motif court d'un rejet (`jev:experience(0.82)`), absent si l'offre passe.
+    reason: str | None = None
+    model: str = "jev-latest"
+    at: datetime = Field(default_factory=utcnow)
+
+
 class Letter(BaseModel):
     """Lettre de motivation générée."""
 
@@ -225,6 +244,9 @@ class JobRecord(BaseModel):
     """
 
     job: Job
+    #: Verdict de la porte Jev. Conservé même quand l'offre passe : une passe
+    #: reprise après un échec du fit-check ne repaie pas la porte.
+    gate: GateVerdict | None = None
     fit: FitVerdict | None = None
     lexical_score: float | None = None
     #: Lettre rédigée à l'étape 4, conservée pour qu'une passe interrompue après

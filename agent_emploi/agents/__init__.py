@@ -6,7 +6,8 @@ routeur scripté.
 """
 
 from agent_emploi.agents.fit import FitAgent
+from agent_emploi.agents.gate import GateAgent
 from agent_emploi.agents.letter import LetterAgent
 from agent_emploi.agents.review import ReviewAgent
 
-__all__ = ["FitAgent", "LetterAgent", "ReviewAgent"]
+__all__ = ["FitAgent", "GateAgent", "LetterAgent", "ReviewAgent"]

@@ -18,6 +18,7 @@ from pathlib import Path
 from agent_emploi.models import (
     ApplyOutcome,
     FitVerdict,
+    GateVerdict,
     Job,
     JobRecord,
     Letter,
@@ -72,6 +73,7 @@ class JobStore:
         self,
         job: Job,
         *,
+        gate: GateVerdict | None = None,
         fit: FitVerdict | None = None,
         lexical_score: float | None = None,
         letter: Letter | None = None,
@@ -98,6 +100,7 @@ class JobStore:
 
         record = JobRecord(
             job=job,
+            gate=keep(gate, "gate"),
             fit=keep(fit, "fit"),
             lexical_score=keep(lexical_score, "lexical_score"),
             letter=keep(letter, "letter"),

@@ -79,6 +79,22 @@ class FitConfig(BaseModel):
     accept_verdicts: list[str] = Field(default_factory=lambda: ["apply"])
 
 
+class GateConfig(BaseModel):
+    """Porte Jev, entre le pré-filtrage déterministe et le fit-check LLM.
+
+    Désactivée par défaut : elle demande une clé (`JEVMODEL_API_KEY`), et son
+    absence ne doit rien changer au comportement d'une installation existante.
+    """
+
+    enabled: bool = False
+    #: Adéquation minimale, sur l'échelle 0 (hors périmètre) – 3 (forte).
+    min_score: float = 1.5
+    #: Au-delà de cette probabilité, l'expérience exigée est jugée bloquante.
+    max_blocking: float = 0.7
+    #: En deçà de cette probabilité, le contrat est jugé incompatible.
+    min_contract: float = 0.3
+
+
 class LetterConfig(BaseModel):
     min_words: int = 150
     max_words: int = 200
@@ -157,6 +173,7 @@ class Config(BaseModel):
     paths: PathsConfig = Field(default_factory=PathsConfig)
     search: SearchConfig
     filters: FiltersConfig = Field(default_factory=FiltersConfig)
+    gate: GateConfig = Field(default_factory=GateConfig)
     fit: FitConfig = Field(default_factory=FitConfig)
     letter: LetterConfig = Field(default_factory=LetterConfig)
     apply: ApplyConfig = Field(default_factory=ApplyConfig)

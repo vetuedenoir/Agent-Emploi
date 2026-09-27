@@ -80,6 +80,7 @@ python -m agent_emploi run --letters 2     # borne la seule étape payante
 python -m agent_emploi archive             # classe les candidatures envoyées
 python -m agent_emploi archive --dry-run   # liste sans rien déplacer
 python -m agent_emploi status              # état des offres et consommation LLM
+python -m agent_emploi calibrate-gate      # compare les seuils de la porte Jev
 pytest                                     # tests (réseau et navigateur exclus)
 pytest -m live                             # tests de contrat sur les vraies API
 pytest -m browser                          # tests sur un vrai Chromium
@@ -87,13 +88,14 @@ pytest -m browser                          # tests sur un vrai Chromium
 
 ## Filtrage
 
-Trois étages, du moins cher au plus cher, chacun ne voyant que ce que le
+Quatre étages, du moins cher au plus cher, chacun ne voyant que ce que le
 précédent a laissé passer :
 
 | Étage | Coût | Ce qu'il tranche |
 |---|---|---|
 | `screen_metadata` | gratuit | termes exclus, contrat, télétravail, ancienneté, titre hors sujet |
 | `screen_content` | 1 requête HTTP | terme requis dans la description, score lexical CV ↔ offre |
+| porte Jev | 1 appel Jev (~0,0001 $) | expérience exigée bloquante, contrat, adéquation d'ensemble |
 | `fit_check` | 1 appel LLM (gratuit) | jugement : niveau attendu, exigences bloquantes, langue de l'annonce |
 
 Le score lexical est un cosinus sur vecteurs log-TF, sans dépendance externe :
@@ -107,8 +109,19 @@ dont le titre ne contient aucun terme requis est écartée **avant** la requête
 détail. Le passer à `false` élargit la pêche au prix d'une requête HTTP par
 offre remontée.
 
+La porte Jev (`gate` dans `config.yaml`, clé `JEVMODEL_API_KEY`) existe parce
+que le score lexical ne départage pas les offres qui arrivent jusqu'au LLM :
+mesuré sur 202 verdicts, les offres retenues ont un score moyen de 0,101, les
+refusées de 0,105 — et 9 sur 10 étaient refusées, surtout sur l'expérience
+exigée ou le contrat. Jev répond à ces questions-là par des probabilités, pour
+un coût négligeable. Elle est optionnelle et ne bloque jamais une passe : sans
+clé, ou crédits épuisés, elle se retire et le fit-check tranche seul. Ses seuils
+se règlent avec `calibrate-gate`, qui la rejoue sur les offres déjà notées et
+met les réponses en cache (`data/gate_calibration.jsonl`) : essayer d'autres
+seuils ne coûte rien.
+
 Chaque rejet est persisté dans `seen.jsonl` avec un motif court
-(`exclu:commercial`, `lexical:0.031<0.040`, `fit:skip(20)`) : c'est en relisant
+(`exclu:commercial`, `lexical:0.031<0.040`, `jev:experience(0.82)`, `fit:skip(20)`) : c'est en relisant
 ces motifs qu'on règle les seuils. `screen` en affiche le décompte à chaque
 passe.
 

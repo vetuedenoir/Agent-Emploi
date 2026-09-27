@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Mapping
 
 from agent_emploi.agents.fit import FitAgent
+from agent_emploi.agents.gate import GateAgent
 from agent_emploi.agents.letter import LetterAgent
 from agent_emploi.agents.review import ReviewAgent
 from agent_emploi.config import Config
@@ -86,6 +87,7 @@ def run_pipeline(
     draft_limit: int | None = None,
     record: bool = True,
     sources: Mapping[str, JobSource] | None = None,
+    gate: GateAgent | None = None,
 ) -> PipelineReport:
     """Déroule la chaîne complète jusqu'aux dossiers à valider.
 
@@ -113,6 +115,7 @@ def run_pipeline(
             cv_text=cv_text,
             sources=sources,
             record=record,
+            gate=gate,
         )
         report.stopped = report.screen.stopped
 
