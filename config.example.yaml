@@ -1,0 +1,106 @@
+# Configuration d'Agent-Emploi — copier en `config.yaml` puis adapter.
+# Les clés d'API ne sont PAS ici : elles vont dans `.env` (voir .env.example).
+
+profile:
+  cv_markdown: profile/cv.md
+  cv_fr: profile/cv_fr.pdf
+  cv_en: profile/cv_en.pdf
+  voice: profile/voice.md
+  banned_phrases: profile/banned_phrases.txt
+
+paths:
+  data: data
+  outbox: outbox
+  applications: applications
+
+search:
+  # Sites interrogés. Une source sans identifiants est ignorée.
+  sources: ["wttj", "france_travail"]
+  # Recherches lancées sur chaque site.
+  queries:
+    - "ingénieur IA"
+    - "machine learning engineer"
+    - "data scientist"
+    - "stage machine learning"
+  countries: ["France"]
+  # Contrats recherchés : CDI, CDD, stage, alternance, freelance.
+  contracts: ["stage", "alternance"]
+  # Télétravail : full, partial, punctual, no. Vide = pas de filtre.
+  remote: []
+  # Ancienneté maximale d'une offre, en jours.
+  max_age_days: 30
+  # Nombre d'offres visées par recherche et par site.
+  per_query_limit: 40
+
+filters:
+  # Au moins un de ces mots doit apparaître dans l'offre.
+  required_any:
+    - "IA"
+    - "AI"
+    - "ML"
+    - "intelligence artificielle"
+    - "machine learning"
+    - "deep learning"
+    - "LLM"
+    - "data scien"
+  # Offre écartée si l'un de ces mots est dans le titre.
+  excluded_any:
+    - "commercial"
+    - "business developer"
+  # Si vrai, un mot de `required_any` doit figurer dans le titre même.
+  require_in_title: true
+  # Ressemblance minimale entre votre CV et l'offre (0 à 1). Plus haut = plus strict.
+  min_lexical_score: 0.04
+  # Une même offre revue dans ce délai est considérée comme un doublon.
+  dedup_window_days: 60
+
+gate:
+  # Pré-filtrage facultatif, qui demande sa propre clé. Sans clé, il est ignoré.
+  enabled: false
+  min_score: 1.0
+  max_blocking: 0.7
+  min_contract: 0.3
+
+fit:
+  # Note minimale (sur 100) pour qu'une lettre soit rédigée.
+  min_score: 65
+  accept_verdicts: ["apply", "maybe"]
+
+letter:
+  min_words: 150
+  max_words: 250
+  # Nombre de réécritures autorisées si la lettre a un défaut.
+  max_regenerations: 1
+  # Nombre maximal de lettres rédigées par passe.
+  max_per_day: 5
+
+llm:
+  # Quel modèle pour quelle tâche.
+  tasks:
+    fit_check:
+      tier: free
+      provider: groq
+      model: openai/gpt-oss-120b
+      fallback: { provider: gemini, model: gemini-3.5-flash-lite }
+    letter:
+      tier: paid
+      provider: anthropic
+      model: claude-opus-5
+    review:
+      tier: free
+      provider: groq
+      model: openai/gpt-oss-120b
+      fallback: { provider: gemini, model: gemini-3.5-flash-lite }
+
+  # Tarifs en dollars par million de tokens, pour estimer le coût.
+  pricing:
+    "claude-opus-5": { input: 5.0, output: 25.0 }
+    "openai/gpt-oss-120b": { input: 0.0, output: 0.0 }
+    "gemini-3.5-flash-lite": { input: 0.0, output: 0.0 }
+    "jev-latest": { input: 0.042, output: 0.0 }
+
+budget:
+  # Dépense maximale par jour, en dollars.
+  daily_usd: 1.0
+  # Nombre maximal d'appels aux modèles par jour.
+  daily_calls: 500

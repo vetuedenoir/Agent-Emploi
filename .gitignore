@@ -4,9 +4,14 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 
-# Données locales et secrets
+# Données locales et secrets (voir les fichiers *.example)
 .env
 data/
 outbox/
 applications/
 profile/*
+/config.yaml
+
+# Outils locaux
+CLAUDE.md
+.rtk/
