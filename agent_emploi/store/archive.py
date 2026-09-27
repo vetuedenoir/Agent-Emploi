@@ -41,8 +41,8 @@ FOLLOWUP_FILE = "README.md"
 FOLLOWUP_DAYS = 14
 
 #: États qui closent une candidature du point de vue du programme, avec leur
-#: libellé dans la fiche. `HANDOFF` n'y est pas : tant que l'utilisateur n'a pas
-#: déclaré l'envoi, le dossier est encore à faire.
+#: libellé dans la fiche. `APPROVED` n'y est pas : tant que l'utilisateur n'a
+#: pas déclaré l'envoi, le dossier est encore à faire.
 ARCHIVABLE: dict[JobState, str] = {
     JobState.SUBMITTED: "envoyée",
     JobState.REJECTED: "rejetée avant envoi",
@@ -87,8 +87,8 @@ def archive_path(root: Path, record: JobRecord, at: datetime | None = None) -> P
 
 def closed_at(record: JobRecord) -> datetime:
     """Date de clôture : l'envoi déclaré, sinon la décision, sinon maintenant."""
-    if record.application is not None and record.application.submitted:
-        return record.application.at
+    if record.submitted_at is not None:
+        return record.submitted_at
     if record.decision is not None:
         return record.decision.at
     return utcnow()
@@ -325,7 +325,7 @@ def archive_and_save(
     """
     archived = archive_record(config.paths.applications, record, entry, move=move)
     # Le dossier a bougé : `outbox` doit suivre, sans quoi les commandes qui le
-    # lisent (`apply --sent`, `status`) désigneraient un chemin disparu.
+    # lisent (`sent`, `status`) désigneraient un chemin disparu.
     saved = job_store.save(
         record.job,
         archive=str(archived.directory),

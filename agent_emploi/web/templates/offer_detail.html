@@ -30,7 +30,7 @@
 {% if error %}<p class="banner banner-ko" role="alert">{{ error }}</p>{% endif %}
 
 {% set tracked_without_text = d.entry and d.entry.state.value == 'tracked' and not (r and r.job.description) %}
-{% if can.decide or can.reject or can.mark_sent or can.archive or can.apply_command or can.prepare or tracked_without_text %}
+{% if can.decide or can.reject or can.mark_sent or can.archive or can.prepare or tracked_without_text %}
 <section class="card actions">
   <h2>Actions</h2>
   {% if can.prepare %}
@@ -52,10 +52,6 @@
     <input type="text" name="note" placeholder="{{ 'Motif (facultatif)' if d.entry.state.value == 'tracked' else 'Motif du rejet — il sert à régler les filtres' }}" aria-label="Motif du rejet">
     <button type="submit" class="danger">{{ 'Abandonner' if d.entry.state.value == 'tracked' else 'Rejeter' }}</button>
   </form>
-  {% endif %}
-  {% if can.apply_command %}
-  <p>Prochaine étape, dans un terminal (navigateur visible, rien n'est envoyé) :</p>
-  <pre class="command"><code>{{ can.apply_command }}</code></pre>
   {% endif %}
   {% if can.mark_sent %}
   <form method="post" action="/offres/{{ d.id }}/envoyee" class="form-row">
@@ -163,14 +159,10 @@
   </section>
   {% endif %}
 
-  {% if r and r.application %}
-  {% set a = r.application %}
+  {% if r and r.submitted_at %}
   <section class="card">
-    <h2>Candidature <span class="verdict {{ 'ok' if a.submitted else '' }}">{{ 'envoyée' if a.submitted else a.status }}</span></h2>
-    <p class="muted small">{{ a.at | local_time }}{% if a.ats %} · {{ a.ats }}{% endif %}</p>
-    {% if a.filled %}<h3>Champs remplis</h3><p>{{ a.filled | join(', ') }}</p>{% endif %}
-    {% if a.todo %}<h3>À remplir à la main</h3><p>{{ a.todo | join(', ') }}</p>{% endif %}
-    {% if a.blockers %}<h3>Blocages</h3><ul>{% for b in a.blockers %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
+    <h2>Candidature <span class="verdict ok">envoyée</span></h2>
+    <p class="muted small">{{ r.submitted_at | local_time }}</p>
   </section>
   {% endif %}
 

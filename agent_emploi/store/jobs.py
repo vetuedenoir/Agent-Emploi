@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from agent_emploi.models import (
-    ApplyOutcome,
     FitVerdict,
     GateVerdict,
     Job,
@@ -80,7 +80,7 @@ class JobStore:
         review: ReviewVerdict | None = None,
         outbox: str | None = None,
         decision: UserDecision | None = None,
-        application: ApplyOutcome | None = None,
+        submitted_at: datetime | None = None,
         archive: str | None = None,
     ) -> JobRecord:
         """Écrit ou met à jour une offre. Les champs non fournis sont conservés.
@@ -107,7 +107,7 @@ class JobStore:
             review=keep(review, "review"),
             outbox=keep(outbox, "outbox"),
             decision=keep(decision, "decision"),
-            application=keep(application, "application"),
+            submitted_at=keep(submitted_at, "submitted_at"),
             archive=keep(archive, "archive"),
         )
         self.path.parent.mkdir(parents=True, exist_ok=True)

@@ -16,7 +16,7 @@ Deux points de conception valent d'être explicités :
 
 **`lettre.md` fait foi.** L'utilisateur corrige ce fichier, pas la base : à
 l'approbation, la lettre est relue depuis le dossier et réécrite dans
-`jobs.jsonl`. C'est sa version qui partira à l'étape 6, et les formules
+`jobs.jsonl`. C'est sa version qui est archivée, et les formules
 interdites sont revérifiées sur elle — une correction à la main peut en
 réintroduire.
 

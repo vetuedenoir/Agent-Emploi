@@ -89,8 +89,7 @@ def prompt_missing_env(
 ) -> list[str]:
     """Demande à l'utilisateur les identifiants absents d'une source.
 
-    Le pendant, côté sources, de ce que `apply --login` fait pour les sites :
-    ne pas obliger à écrire un secret dans un fichier. Les valeurs saisies sont
+    Ne pas obliger à écrire un secret dans un fichier. Les valeurs saisies sont
     posées dans l'environnement du **processus courant** — elles vivent le temps
     de la commande, ne sont jamais écrites sur disque, et ne sont pas réutilisées
     à la session suivante.

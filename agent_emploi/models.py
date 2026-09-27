@@ -12,7 +12,7 @@ from enum import StrEnum
 from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 
 def utcnow() -> datetime:
@@ -29,8 +29,10 @@ class JobState(StrEnum):
     REVIEWED = "reviewed"
     AWAITING_USER = "awaiting_user"
     APPROVED = "approved"
-    PREFILLED = "prefilled"
     SUBMITTED = "submitted"
+    #: États hérités du remplissage automatique, retiré depuis. Ils restent
+    #: lisibles pour les offres qui y sont encore, et ne mènent qu'à la fin.
+    PREFILLED = "prefilled"
     HANDOFF = "handoff"
     #: Offre ajoutée à la main pour mémoire : ni notée ni rédigée, mais suivie
     #: jusqu'à l'envoi — ou reprise plus tard pour préparer une candidature.
@@ -49,15 +51,12 @@ ALLOWED_TRANSITIONS: dict[JobState, frozenset[JobState]] = {
         {JobState.AWAITING_USER, JobState.DRAFTED, JobState.REJECTED}
     ),
     # Une offre en attente ne peut que recevoir une décision de l'utilisateur :
-    # aucun chemin ne mène au remplissage sans passer par `APPROVED`.
+    # aucun chemin ne mène à l'envoi sans passer par `APPROVED`.
     JobState.AWAITING_USER: frozenset({JobState.APPROVED, JobState.REJECTED}),
-    JobState.APPROVED: frozenset(
-        {JobState.PREFILLED, JobState.HANDOFF, JobState.REJECTED}
-    ),
-    JobState.PREFILLED: frozenset(
-        {JobState.SUBMITTED, JobState.HANDOFF, JobState.REJECTED}
-    ),
+    # L'utilisateur envoie lui-même, puis le déclare.
+    JobState.APPROVED: frozenset({JobState.SUBMITTED, JobState.REJECTED}),
     JobState.SUBMITTED: frozenset(),
+    JobState.PREFILLED: frozenset({JobState.SUBMITTED, JobState.REJECTED}),
     JobState.HANDOFF: frozenset({JobState.SUBMITTED, JobState.REJECTED}),
     # Une offre suivie se prépare (elle rejoint alors le parcours au
     # pré-filtrage, sans en subir les filtres), s'envoie à la main, ou s'oublie.
@@ -143,7 +142,7 @@ class Job(BaseModel):
     sectors: list[str] = Field(default_factory=list)
     #: URL réelle de candidature — souvent un ATS externe (Greenhouse, Lever…).
     apply_url: str | None = None
-    #: Nom de l'ATS, qui détermine la stratégie de remplissage à l'étape 6.
+    #: Nom de l'ATS (Greenhouse, Lever…), affiché à côté du lien de candidature.
     ats: str | None = None
     #: Identifiants internes à la source, nécessaires pour aller chercher le détail.
     source_ref: dict[str, str] = Field(default_factory=dict)
@@ -204,7 +203,7 @@ class Letter(BaseModel):
     banned_hits: list[str] = Field(default_factory=list)
     regenerated: bool = False
     #: Vrai si l'utilisateur a corrigé `lettre.md` à la main avant d'approuver.
-    #: C'est alors sa version qui est ici, et c'est elle qui partira à l'étape 6.
+    #: C'est alors sa version qui est ici, et c'est elle qui est archivée.
     edited: bool = False
 
     @property
@@ -224,7 +223,7 @@ class ReviewVerdict(BaseModel):
 class UserDecision(BaseModel):
     """La décision de l'utilisateur sur un dossier — le seul feu vert du système.
 
-    Persistée à la fois dans `jobs.jsonl` (pour l'étape 6) et dans
+    Persistée à la fois dans `jobs.jsonl` et dans
     `decision.json` au sein du dossier (pour que le dossier reste lisible sans
     lancer le programme).
     """
@@ -237,29 +236,6 @@ class UserDecision(BaseModel):
     #: tout » doit rester traçable.
     concerns: list[str] = Field(default_factory=list)
     letter_edited: bool = False
-
-
-class ApplyOutcome(BaseModel):
-    """Ce qu'a donné le remplissage assisté du formulaire, à l'étape 6.
-
-    `submitted` reste faux tant que l'utilisateur n'a pas déclaré avoir envoyé
-    lui-même : aucun chemin de code ne clique sur le bouton d'envoi, donc rien
-    ne peut le passer à vrai sans une affirmation humaine.
-    """
-
-    status: Literal["prefilled", "handoff"]
-    at: datetime = Field(default_factory=utcnow)
-    apply_url: str
-    ats: str | None = None
-    #: Champs effectivement remplis, sous leur libellé affiché.
-    filled: list[str] = Field(default_factory=list)
-    #: Champs laissés à l'utilisateur parce qu'aucune donnée ne leur correspond
-    #: (cases à cocher, listes déroulantes, questions libres).
-    todo: list[str] = Field(default_factory=list)
-    #: Motif d'un `handoff` : captcha, connexion requise, champ requis inconnu.
-    blockers: list[str] = Field(default_factory=list)
-    screenshot: str | None = None
-    submitted: bool = False
 
 
 class JobRecord(BaseModel):
@@ -285,12 +261,25 @@ class JobRecord(BaseModel):
     outbox: str | None = None
     #: Décision rendue à l'étape 5. Tant qu'elle est absente, rien ne part.
     decision: UserDecision | None = None
-    #: Résultat du remplissage assisté, à l'étape 6.
-    application: ApplyOutcome | None = None
+    #: Date à laquelle l'utilisateur a déclaré avoir envoyé la candidature.
+    #: Le programme n'envoie rien : seule cette déclaration clôt un dossier.
+    submitted_at: datetime | None = None
     #: Dossier d'archive `applications/`, une fois la candidature classée. Sa
     #: présence signale que l'offre est sortie du flux courant.
     archive: str | None = None
     at: datetime = Field(default_factory=utcnow)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_application(cls, data):
+        """Reprend la date d'envoi des lignes écrites du temps du remplissage
+        automatique, où elle vivait dans `application`."""
+        if isinstance(data, dict) and "application" in data:
+            data = dict(data)
+            application = data.pop("application") or {}
+            if application.get("submitted") and not data.get("submitted_at"):
+                data["submitted_at"] = application.get("at")
+        return data
 
 
 class SeenEntry(BaseModel):

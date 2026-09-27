@@ -1,6 +1,6 @@
 """Fournisseur Groq — tier gratuit, API compatible OpenAI.
 
-Sert le gros du volume : filtrage d'adéquation, revue, mapping de formulaire.
+Sert le gros du volume : filtrage d'adéquation et revue.
 """
 
 from __future__ import annotations

@@ -4,6 +4,7 @@ from agent_emploi.models import (
     ALLOWED_TRANSITIONS,
     InvalidTransition,
     Job,
+    JobRecord,
     JobState,
     canonical_url,
     check_transition,
@@ -52,7 +53,6 @@ class TestTransitions:
             JobState.REVIEWED,
             JobState.AWAITING_USER,
             JobState.APPROVED,
-            JobState.PREFILLED,
             JobState.SUBMITTED,
         ]
         for current, target in zip(path, path[1:]):
@@ -74,18 +74,18 @@ class TestTransitions:
     def test_review_can_send_back_to_drafting(self):
         check_transition(JobState.REVIEWED, JobState.DRAFTED)
 
-    def test_cannot_skip_user_validation(self):
-        with pytest.raises(InvalidTransition):
-            check_transition(JobState.DRAFTED, JobState.PREFILLED)
+    def test_cannot_submit_without_user_approval(self):
+        for state in (JobState.DRAFTED, JobState.AWAITING_USER):
+            with pytest.raises(InvalidTransition):
+                check_transition(state, JobState.SUBMITTED)
 
-    def test_cannot_prefill_without_user_approval(self):
-        # L'étape 6 ne doit avoir aucun chemin qui contourne la validation.
+    def test_legacy_states_only_lead_to_the_end(self):
+        """`prefilled` et `handoff`, hérités du remplissage automatique."""
+        for state in (JobState.PREFILLED, JobState.HANDOFF):
+            check_transition(state, JobState.SUBMITTED)
+            check_transition(state, JobState.REJECTED)
         with pytest.raises(InvalidTransition):
-            check_transition(JobState.AWAITING_USER, JobState.PREFILLED)
-
-    def test_cannot_submit_without_prefill_or_handoff(self):
-        with pytest.raises(InvalidTransition):
-            check_transition(JobState.AWAITING_USER, JobState.SUBMITTED)
+            check_transition(JobState.APPROVED, JobState.PREFILLED)
 
     def test_terminal_states_have_no_exit(self):
         with pytest.raises(InvalidTransition):
@@ -116,3 +116,32 @@ class TestManualQuery:
 
     def test_default_ids_are_unchanged(self):
         assert canonical_url("https://x.com/viewjob?jk=9") == "https://x.com/viewjob"
+
+
+class TestLegacyApplication:
+    """Les lignes de `jobs.jsonl` écrites du temps du remplissage automatique."""
+
+    def test_submitted_date_is_recovered(self):
+        job = Job.build(source="wttj", url="https://example.com/o/1", title="T", company="C")
+        record = JobRecord.model_validate(
+            {
+                "job": job.model_dump(mode="json"),
+                "application": {
+                    "status": "handoff",
+                    "at": "2026-08-11T09:30:00Z",
+                    "apply_url": "https://ats/x",
+                    "submitted": True,
+                },
+            }
+        )
+        assert record.submitted_at.isoformat() == "2026-08-11T09:30:00+00:00"
+
+    def test_unsent_application_is_dropped(self):
+        job = Job.build(source="wttj", url="https://example.com/o/1", title="T", company="C")
+        record = JobRecord.model_validate(
+            {
+                "job": job.model_dump(mode="json"),
+                "application": {"status": "handoff", "apply_url": "x", "submitted": False},
+            }
+        )
+        assert record.submitted_at is None

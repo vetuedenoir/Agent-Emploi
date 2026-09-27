@@ -8,7 +8,7 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient
 
-from agent_emploi.models import ApplyOutcome, FitVerdict, Job, JobState, Letter
+from agent_emploi.models import FitVerdict, Job, JobState, Letter
 from agent_emploi.outbox import read_letter
 from agent_emploi.store.jobs import JobStore
 from agent_emploi.store.seen import SeenStore
@@ -100,11 +100,11 @@ class TestLetter:
         assert response.status_code == 409
         assert read_letter(directory) == "Lettre du modèle."
 
-    def test_read_only_after_prefill(self, client, bundle, web_config):
+    def test_read_only_once_sent(self, client, bundle, web_config):
         job, _ = bundle
         seen = seen_store(web_config)
         seen.transition(job.id, JobState.APPROVED)
-        seen.transition(job.id, JobState.PREFILLED)
+        seen.transition(job.id, JobState.SUBMITTED)
 
         assert "<textarea" not in client.get(f"/offres/{job.id}").text
         response = client.post(f"/offres/{job.id}/lettre", data={"text": "Autre."})
@@ -131,7 +131,7 @@ class TestDecision:
         assert json.loads((directory / "decision.json").read_text())["note"] == "go"
 
         page = client.get(response.headers["location"]).text
-        assert f"python -m agent_emploi apply {job.id[:8]}" in page
+        assert "J'ai envoyé la candidature" in page
 
     def test_reject_keeps_reason(self, client, bundle, web_config):
         job, _ = bundle
@@ -153,26 +153,20 @@ class TestDecision:
 
 class TestSentAndArchive:
     @pytest.fixture
-    def prefilled(self, bundle, web_config):
+    def approved(self, bundle, web_config):
         job, directory = bundle
-        seen = seen_store(web_config)
-        seen.transition(job.id, JobState.APPROVED)
-        seen.transition(job.id, JobState.PREFILLED)
-        job_store(web_config).save(
-            job,
-            application=ApplyOutcome(status="prefilled", apply_url="https://example.com/apply"),
-        )
+        seen_store(web_config).transition(job.id, JobState.APPROVED)
         return job, directory
 
-    def test_sent_is_refused_before_prefill(self, client, bundle):
+    def test_sent_is_refused_before_approval(self, client, bundle):
         job, _ = bundle
         assert client.post(f"/offres/{job.id}/envoyee", data={}).status_code == 409
 
-    def test_mark_sent_then_archive(self, client, prefilled, web_config):
-        job, directory = prefilled
+    def test_mark_sent_then_archive(self, client, approved, web_config):
+        job, directory = approved
         client.post(f"/offres/{job.id}/envoyee", data={"note": "par mail"})
         assert state(web_config, job) is JobState.SUBMITTED
-        assert job_store(web_config).get(job.id).application.submitted
+        assert job_store(web_config).get(job.id).submitted_at is not None
 
         response = client.post(f"/offres/{job.id}/archiver", follow_redirects=False)
         assert response.status_code == 303

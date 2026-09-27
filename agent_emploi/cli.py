@@ -1,14 +1,15 @@
 """Interface en ligne de commande.
 
 Les commandes suivent l'avancement du plan : diagnostic, recherche, filtrage,
-rédaction, validation, puis candidature.
+rédaction, validation. La candidature elle-même se fait à la main, sur le site
+de l'offre ; `sent` l'enregistre ensuite.
 
     python -m agent_emploi doctor    # vérifie l'installation
     python -m agent_emploi search    # cherche et mémorise les offres nouvelles
     python -m agent_emploi screen    # filtre, enrichit et note (fit-check LLM)
     python -m agent_emploi draft     # rédige les lettres et prépare outbox/
     python -m agent_emploi review    # soumet les dossiers à votre validation
-    python -m agent_emploi apply     # remplit les formulaires, sans jamais envoyer
+    python -m agent_emploi sent <réf> # enregistre une candidature envoyée
     python -m agent_emploi archive   # classe les candidatures envoyées
     python -m agent_emploi status    # état des offres et consommation LLM
     python -m agent_emploi web       # interface web locale
@@ -83,30 +84,7 @@ def _check_profile(config: Config) -> bool:
         else:
             print(f"{OK} {label}: {path}")
 
-    _check_identity(config)
     return healthy
-
-
-def _check_identity(config: Config) -> None:
-    """État civil : requis seulement pour remplir un formulaire (étape 6)."""
-    from agent_emploi.apply.identity import Identity
-
-    path = config.profile.identity
-    if not path.exists():
-        print(
-            f"{WARN} état civil: {path} — absent (étape 6 ; "
-            "`python -m agent_emploi apply --init-identity` écrit le gabarit)"
-        )
-        return
-    try:
-        identity = Identity.load(path)
-    except ValueError as exc:
-        print(f"{WARN} état civil: {path} — illisible ({exc})")
-        return
-    if identity.missing:
-        print(f"{WARN} état civil: {path} — à compléter: {', '.join(identity.missing)}")
-    else:
-        print(f"{OK} état civil: {path}")
 
 
 def _check_providers(config: Config) -> None:
@@ -202,8 +180,8 @@ def ask_source_credentials(config: Config, *, ask_allowed: bool = True) -> None:
     """Propose de saisir, en début de passe, les identifiants de source absents.
 
     Trois façons de fournir un identifiant, dans cet ordre : l'environnement,
-    `.env`, puis cette invite. La dernière existe pour la même raison que
-    `apply --login` : ne pas obliger à écrire un secret dans un fichier. Ce qui
+    `.env`, puis cette invite. La dernière existe pour ne pas obliger à écrire
+    un secret dans un fichier. Ce qui
     est saisi ici ne vit que le temps de la commande.
 
     L'invite n'apparaît que sur un vrai terminal. Sans elle, une passe lancée
@@ -397,7 +375,7 @@ def cmd_draft(config: Config, *, limit: int | None, dry_run: bool) -> int:
         review_agent=ReviewAgent(router, profile),
         # La rédaction est l'étape payante : sans consigne explicite, on s'en
         # tient au rythme de candidatures décidé dans `config.yaml`.
-        limit=limit if limit is not None else config.apply.max_per_day,
+        limit=limit if limit is not None else config.letter.max_per_day,
         record=not dry_run,
     )
 
@@ -529,7 +507,7 @@ def cmd_review(
         f"{len(report.postponed)} laissée(s) en attente"
     )
     if report.approved:
-        print("\nPrêtes pour la candidature (étape 6) :")
+        print("\nÀ envoyer vous-même, puis `sent <réf>` :")
         for item in report.approved:
             print(f"  {item.directory}")
             if item.record.job.apply_url:
@@ -538,162 +516,38 @@ def cmd_review(
     return 1 if report.errors else 0
 
 
-def cmd_apply(
-    config: Config,
-    *,
-    ref: str | None,
-    limit: int | None,
-    dry_run: bool,
-    login: list[str],
-    init_identity: bool,
-    sent: bool,
-    note: str | None,
-    no_llm: bool = False,
-) -> int:
-    """Remplit les formulaires des dossiers approuvés. N'envoie jamais rien."""
-    from agent_emploi.apply.browser import BrowserUnavailable, launch
-    from agent_emploi.apply.identity import Identity
-    from agent_emploi.apply.login import sign_in_sites
-    from agent_emploi.apply.mapping import guess_slots
-    from agent_emploi.apply.runner import mark_submitted, run_apply, select_candidates
-    from agent_emploi.llm.router import Router
+def cmd_sent(config: Config, *, ref: str, note: str | None) -> int:
+    """Enregistre une candidature que l'utilisateur a envoyée lui-même."""
+    from agent_emploi.sent import mark_submitted
     from agent_emploi.store.jobs import JobStore
 
     config.paths.ensure()
-
-    if init_identity:
-        try:
-            path = Identity.write_template(config.profile.identity)
-        except FileExistsError as exc:
-            print(f"{WARN} {exc}")
-            return 0
-        print(f"{OK} gabarit écrit: {path} — remplissez-le avant de candidater")
-        return 0
-
     store = SeenStore(
         config.paths.seen_file, dedup_window_days=config.filters.dedup_window_days
     )
     job_store = JobStore(config.paths.jobs_file)
 
-    # Déclarer un envoi ne touche pas au navigateur : c'est un simple constat.
-    if sent:
-        if ref is None:
-            print(f"{FAIL} --sent exige une référence de dossier", file=sys.stderr)
-            return 1
-        matches = [
-            record
-            for record in job_store.records()
-            if record.job.id.startswith(ref.lower())
-            or (record.outbox and ref.lower() in Path(record.outbox).name.lower())
-        ]
-        if len(matches) != 1:
-            print(
-                f"{FAIL} référence {ref!r} : {len(matches)} dossier(s) correspondant(s)",
-                file=sys.stderr,
-            )
-            return 1
-        updated = mark_submitted(
-            matches[0].job.id, seen=store, job_store=job_store, note=note
+    matches = [
+        record
+        for record in job_store.records()
+        if record.job.id.startswith(ref.lower())
+        or (record.outbox and ref.lower() in Path(record.outbox).name.lower())
+    ]
+    if len(matches) != 1:
+        print(
+            f"{FAIL} référence {ref!r} : {len(matches)} dossier(s) correspondant(s)",
+            file=sys.stderr,
         )
-        if updated is None:
-            print(
-                f"{FAIL} {matches[0].job.title} : aucune candidature préparée à "
-                "marquer comme envoyée",
-                file=sys.stderr,
-            )
-            return 1
-        print(f"✓ envoi enregistré — {updated.job.company} — {updated.job.title}")
-        return 0
-
-    try:
-        identity = Identity.load(config.profile.identity)
-    except (FileNotFoundError, ValueError) as exc:
-        print(f"{FAIL} {exc}", file=sys.stderr)
         return 1
-    if identity.missing:
-        print(f"{WARN} état civil incomplet ({', '.join(identity.missing)}) — "
-              "ces champs resteront à remplir à la main")
-
-    queue = select_candidates(job_store, store, limit=limit)
-    if not queue and not login:
-        print("Aucun dossier approuvé — lancer `review` pour en valider.")
-        return 0
-
-    # Le recours d'appariement n'est construit que s'il est autorisé ; il n'est
-    # sollicité que sur un formulaire que les motifs n'ont pas su remplir.
-    guess = None
-    if not no_llm:
-        router = Router(config)
-        guess = lambda fields, available, job_id: guess_slots(  # noqa: E731
-            router, fields, available, job_id=job_id
+    updated = mark_submitted(matches[0].job.id, seen=store, job_store=job_store, note=note)
+    if updated is None:
+        print(
+            f"{FAIL} {matches[0].job.title} : dossier non approuvé, ou déjà clos",
+            file=sys.stderr,
         )
-
-    try:
-        with launch(config.apply.browser) as browser:
-            if login:
-                done, failed = sign_in_sites(browser, login)
-                for message in done:
-                    print(f"{OK} {message}")
-                for message in failed:
-                    print(f"{WARN} {message}")
-
-            report = run_apply(
-                config,
-                browser=browser,
-                seen=store,
-                job_store=job_store,
-                identity=identity,
-                limit=limit if limit is not None else config.apply.max_per_day,
-                record=not dry_run,
-                only=ref,
-                guess=guess,
-            )
-
-            for error in report.errors:
-                print(f"{WARN} {error}")
-
-            print(
-                f"\nCandidature : {len(report.prepared)} formulaire(s) rempli(s), "
-                f"{len(report.handoffs)} rendu(s) à la main"
-            )
-            for item in report.prepared:
-                print(f"\n  ✓ {item.label}")
-                print(f"    {item.outcome.apply_url}")
-                print(f"    {len(item.outcome.filled)} champ(s) remplis · "
-                      f"{item.directory}")
-                for todo in item.outcome.todo:
-                    print(f"{WARN} à faire vous-même : {todo}")
-            for item in report.handoffs:
-                print(f"\n  ↦ {item.label} — à faire à la main")
-                print(f"    {item.outcome.apply_url}")
-                for blocker in item.outcome.blockers:
-                    print(f"{WARN} {blocker}")
-                print(f"    fiche : {item.directory / 'candidature.md'}")
-
-            if dry_run:
-                print("\n(passe à blanc — rien n'a été enregistré)")
-
-            if report.prepared:
-                print(
-                    "\nLes formulaires sont ouverts et remplis. **Rien n'a été "
-                    "envoyé** : vérifiez chaque onglet, complétez ce qui reste, "
-                    "puis envoyez vous-même."
-                )
-                print(
-                    "Une fois envoyée, enregistrez-la : "
-                    "`python -m agent_emploi apply <réf> --sent`"
-                )
-                # Le contexte se ferme à la sortie du `with` : sans cette
-                # attente, les onglets disparaîtraient avant d'être lus.
-                try:
-                    input("\nAppuyez sur Entrée quand vous en avez terminé… ")
-                except EOFError:
-                    pass
-    except BrowserUnavailable as exc:
-        print(f"{FAIL} {exc}", file=sys.stderr)
         return 1
-
-    return 1 if report.errors and not report.prepared else 0
+    print(f"✓ envoi enregistré — {updated.job.company} — {updated.job.title}")
+    return 0
 
 
 def cmd_archive(
@@ -724,7 +578,7 @@ def cmd_archive(
     if not report.archived:
         print(
             "Aucune candidature à archiver — une candidature se classe une fois "
-            "déclarée envoyée (`apply <réf> --sent`)."
+            "déclarée envoyée (`sent <réf>`)."
         )
         return 1 if report.errors else 0
 
@@ -1035,7 +889,7 @@ def main(argv: list[str] | None = None) -> int:
         "--limit",
         type=int,
         default=None,
-        help="nombre de lettres à rédiger (défaut: apply.max_per_day)",
+        help="nombre de lettres à rédiger (défaut: letter.max_per_day)",
     )
     draft.add_argument(
         "--dry-run",
@@ -1083,7 +937,7 @@ def main(argv: list[str] | None = None) -> int:
         "--letters",
         type=int,
         default=None,
-        help="nombre de lettres à rédiger (défaut: apply.max_per_day)",
+        help="nombre de lettres à rédiger (défaut: letter.max_per_day)",
     )
     run_cmd.add_argument(
         "--dry-run",
@@ -1123,53 +977,14 @@ def main(argv: list[str] | None = None) -> int:
         "(défaut: 35, soit ~100k tokens, le crédit offert à l'inscription)",
     )
 
-    apply_cmd = sub.add_parser(
-        "apply",
-        help="remplit les formulaires des dossiers approuvés (sans jamais envoyer)",
+    sent_cmd = sub.add_parser(
+        "sent",
+        help="enregistre une candidature que vous avez envoyée vous-même",
     )
-    apply_cmd.add_argument(
-        "ref",
-        nargs="?",
-        default=None,
-        help="dossier visé : début d'identifiant ou fragment de nom de dossier",
+    sent_cmd.add_argument(
+        "ref", help="dossier visé : début d'identifiant ou fragment de nom de dossier"
     )
-    apply_cmd.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        help="nombre de candidatures à préparer (défaut: apply.max_per_day)",
-    )
-    apply_cmd.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="remplit les formulaires sans rien enregistrer",
-    )
-    apply_cmd.add_argument(
-        "--login",
-        metavar="SITE",
-        action="append",
-        default=[],
-        help="se connecter au site avant de candidater (ex: --login wttj). "
-        "Le mot de passe est lu dans <SITE>_PASSWORD ou demandé à l'invite, "
-        "et n'est jamais écrit sur disque",
-    )
-    apply_cmd.add_argument(
-        "--no-llm",
-        action="store_true",
-        help="n'appelle aucun modèle : un libellé non reconnu par les motifs "
-        "renvoie directement la main",
-    )
-    apply_cmd.add_argument(
-        "--init-identity",
-        action="store_true",
-        help="écrit le gabarit profile/identity.yaml et s'arrête",
-    )
-    apply_cmd.add_argument(
-        "--sent",
-        action="store_true",
-        help="enregistre que vous avez envoyé la candidature désignée",
-    )
-    apply_cmd.add_argument(
+    sent_cmd.add_argument(
         "--note", default=None, help="remarque jointe à l'enregistrement de l'envoi"
     )
 
@@ -1225,18 +1040,8 @@ def main(argv: list[str] | None = None) -> int:
             decision="approve" if args.approve else "reject" if args.reject else None,
             note=args.note,
         )
-    if args.command == "apply":
-        return cmd_apply(
-            config,
-            ref=args.ref,
-            limit=args.limit,
-            dry_run=args.dry_run,
-            login=args.login,
-            init_identity=args.init_identity,
-            sent=args.sent,
-            note=args.note,
-            no_llm=args.no_llm,
-        )
+    if args.command == "sent":
+        return cmd_sent(config, ref=args.ref, note=args.note)
     if args.command == "web":
         return cmd_web(config, port=args.port)
     return {"doctor": cmd_doctor, "status": cmd_status}[args.command](config)

@@ -11,11 +11,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Étape 6 uniquement : les étapes 1 à 5 n'ouvrent aucun navigateur, et les
-# tests se déroulent entièrement sans Chromium.
-apply = [
-    "playwright>=1.44",
-]
 # Interface web locale (`python -m agent_emploi web`). Le reste du programme
 # n'en dépend pas : la CLI fonctionne sans ces paquets.
 web = [
@@ -41,6 +36,5 @@ packages = ["agent_emploi"]
 testpaths = ["tests"]
 markers = [
     "live: touche le réseau réel (désactivé par défaut)",
-    "browser: ouvre un vrai Chromium (désactivé par défaut)",
 ]
-addopts = "-m 'not live and not browser'"
+addopts = "-m 'not live'"

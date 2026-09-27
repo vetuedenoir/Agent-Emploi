@@ -488,7 +488,7 @@ class FranceTravailSource:
             apply_url=_first(offer.get("contact"), "urlPostulation")
             or origin.get("urlOrigine")
             or f"{SITE}/{offer_id}",
-            # L'ATS de l'étape 6 est le site du partenaire diffuseur quand il y
+            # L'ATS est le site du partenaire diffuseur quand il y
             # en a un ; sinon la candidature se fait sur France Travail.
             ats=partner or self.name,
             source_ref={"offer_id": str(offer_id)},

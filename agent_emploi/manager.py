@@ -5,9 +5,9 @@ Une seule commande enchaîne les passes que l'on lançait jusqu'ici une par une 
     recherche → filtrage → fit-check → lettre → revue → dossier → **arrêt**
 
 Le point d'arrêt n'est pas un réglage, c'est la conception : la boucle mène les
-offres jusqu'à `awaiting_user` et s'y tient. Elle n'appelle ni `review` — qui
-demande une décision humaine — ni `apply` — qui ouvre un navigateur. Ce module
-n'importe donc rien de `apply/`, et un test le vérifie.
+offres jusqu'à `awaiting_user` et s'y tient. Elle n'appelle pas `review`, qui
+demande une décision humaine, et n'envoie rien : la candidature se fait à la
+main, sur le site de l'offre.
 
 Une passe d'archivage ferme la marche : elle range dans `applications/` les
 candidatures que vous avez déclarées envoyées depuis la dernière fois. C'est du
@@ -93,7 +93,7 @@ def run_pipeline(
 
     `limit` borne la recherche (offres visées par requête et par source),
     `draft_limit` le nombre de lettres — la seule étape payante, qui suit
-    `apply.max_per_day` si rien n'est précisé.
+    `letter.max_per_day` si rien n'est précisé.
 
     `record=False` fait une passe à blanc de bout en bout : les appels LLM ont
     bien lieu, car c'est le seul moyen de voir ce que la chaîne produit, mais ni
@@ -140,7 +140,7 @@ def run_pipeline(
         profile=profile,
         letter_agent=letter_agent,
         review_agent=review_agent,
-        limit=draft_limit if draft_limit is not None else config.apply.max_per_day,
+        limit=draft_limit if draft_limit is not None else config.letter.max_per_day,
         record=record,
         candidates=drafting,
     )

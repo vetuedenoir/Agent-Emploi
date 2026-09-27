@@ -16,13 +16,13 @@ import pytest
 from agent_emploi.llm.budget import BudgetExceeded
 from agent_emploi.manager import run_pipeline
 from agent_emploi.models import (
-    ApplyOutcome,
     FitVerdict,
     Job,
     JobState,
     Letter,
     ReviewVerdict,
     UserDecision,
+    utcnow,
 )
 from agent_emploi.store.jobs import JobStore
 from agent_emploi.store.seen import SeenStore
@@ -197,27 +197,8 @@ def test_la_boucle_s_arrete_avant_toute_candidature(wired, profile):
 
     states = {entry.state for entry in seen.entries()}
     assert JobState.APPROVED not in states
-    assert JobState.PREFILLED not in states
     assert JobState.SUBMITTED not in states
     assert report.archive.archived == []
-
-
-def test_le_manager_n_importe_rien_du_navigateur():
-    """La garantie est structurelle : `apply/` n'est pas atteignable d'ici."""
-    source = Path("agent_emploi/manager.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    imported = {
-        node.module or ""
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
-    } | {
-        alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    }
-    assert not any(name.startswith("agent_emploi.apply") for name in imported)
-    assert "playwright" not in source
 
 
 def test_une_offre_hors_sujet_s_arrete_au_filtrage(wired, profile):
@@ -279,7 +260,6 @@ def test_la_boucle_archive_les_candidatures_envoyees(wired, profile, tmp_path):
         JobState.REVIEWED,
         JobState.AWAITING_USER,
         JobState.APPROVED,
-        JobState.PREFILLED,
         JobState.SUBMITTED,
     ):
         seen.transition(sent.id, state)
@@ -289,9 +269,7 @@ def test_la_boucle_archive_les_candidatures_envoyees(wired, profile, tmp_path):
         letter=Letter(text=LETTRE, language="fr"),
         outbox=str(directory),
         decision=UserDecision(decision="approved"),
-        application=ApplyOutcome(
-            status="prefilled", apply_url="https://ats.exemple/apply", submitted=True
-        ),
+        submitted_at=utcnow(),
     )
     FakeSource.jobs = []
 
@@ -325,7 +303,7 @@ def test_passe_a_blanc_traverse_la_chaine_sans_rien_ecrire(wired, profile):
 def test_les_lettres_sont_bornees_par_leur_propre_limite(wired, profile):
     """La recherche peut être large, la rédaction reste au rythme configuré."""
     config, seen, job_store = wired
-    config.apply.max_per_day = 5
+    config.letter.max_per_day = 5
     FakeSource.jobs = [make_job(n) for n in range(1, 4)]
     letter_agent = FakeLetterAgent()
 

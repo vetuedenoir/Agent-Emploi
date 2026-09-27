@@ -12,7 +12,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from agent_emploi.models import (
-    ApplyOutcome,
     FitVerdict,
     Job,
     JobState,
@@ -63,7 +62,6 @@ NOMINAL = [
     JobState.REVIEWED,
     JobState.AWAITING_USER,
     JobState.APPROVED,
-    JobState.PREFILLED,
     JobState.SUBMITTED,
 ]
 
@@ -96,12 +94,7 @@ def prepare(tmp_path, config, *, state: JobState, job: Job | None = None,
         letter=Letter(text="Ma lettre relue.", language="fr"),
         outbox=str(directory),
         decision=UserDecision(decision="approved", at=SENT_AT),
-        application=ApplyOutcome(
-            status="prefilled",
-            apply_url="https://ats.exemple/apply",
-            at=SENT_AT,
-            submitted=submitted,
-        ),
+        submitted_at=SENT_AT if submitted else None,
     )
     return job, directory, seen, job_store
 
@@ -114,7 +107,6 @@ def test_seules_les_candidatures_envoyees_sont_classees(tmp_path, config):
     assert select_candidates(job_store, seen) == []
 
     seen.advance(job.id, JobState.APPROVED)
-    seen.advance(job.id, JobState.PREFILLED)
     assert select_candidates(job_store, seen) == []
 
     seen.advance(job.id, JobState.SUBMITTED, "utilisateur:envoyé")
@@ -275,7 +267,8 @@ def test_archive_path_utilise_la_meme_forme_que_outbox(tmp_path, config):
 
 @pytest.mark.parametrize("state", [JobState.HANDOFF, JobState.PREFILLED])
 def test_une_candidature_non_envoyee_reste_a_faire(tmp_path, config, state):
-    """`handoff` et `prefilled` ne sont pas des fins : la main est encore à vous."""
+    """`handoff` et `prefilled`, hérités du remplissage automatique, ne sont
+    pas des fins : la main est encore à vous."""
     job, _, seen, job_store = prepare(
         tmp_path, config, state=JobState.APPROVED, submitted=False
     )

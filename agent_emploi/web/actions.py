@@ -15,7 +15,6 @@ from typing import Callable
 
 from agent_emploi import manual
 from agent_emploi.agents.fit import FitAgent
-from agent_emploi.apply.runner import mark_submitted
 from agent_emploi.config import Config
 from agent_emploi.llm.budget import BudgetExceeded
 from agent_emploi.llm.router import LlmError
@@ -23,13 +22,14 @@ from agent_emploi.models import JobRecord, JobState, SeenEntry, UserDecision, ut
 from agent_emploi.outbox import letter_markdown, refresh_preview
 from agent_emploi.profile import BannedPhrases
 from agent_emploi.review_cli import Pending, approve, concerns, reject
+from agent_emploi.sent import SENDABLE, mark_submitted
 from agent_emploi.store.archive import ARCHIVABLE, archive_and_save
 from agent_emploi.store.jobs import JobStore
 from agent_emploi.store.seen import SeenStore
 from agent_emploi.web.passes import PassBusy, PassRun, PassRunner
 
-#: États où la lettre peut encore changer. Au-delà, elle a été collée dans un
-#: formulaire : la modifier ici ne changerait pas ce qui est parti.
+#: États où la lettre peut encore changer. Au-delà, elle est partie : la
+#: modifier ici ne changerait pas ce qui a été envoyé.
 LETTER_EDITABLE = frozenset(
     {
         JobState.DRAFTED,
@@ -50,10 +50,6 @@ REJECTABLE = frozenset(
     }
 )
 
-#: États d'où l'on peut déclarer un envoi : le formulaire a été rempli, ou la
-#: main a été rendue. `mark_submitted` exige un résultat de remplissage.
-SENDABLE = frozenset({JobState.PREFILLED, JobState.HANDOFF})
-
 
 class ActionRefused(RuntimeError):
     """L'action n'a pas de sens pour l'offre dans son état actuel."""
@@ -70,9 +66,6 @@ class Allowed:
     archive: bool = False
     #: Offre ajoutée à la main, à faire passer au fit-check (ou à y repasser).
     prepare: bool = False
-    #: Commande à copier pour l'étape 6, qui reste en CLI : elle ouvre un
-    #: navigateur visible et peut demander un mot de passe à l'invite.
-    apply_command: str | None = None
 
 
 def allowed(entry: SeenEntry | None, record: JobRecord | None) -> Allowed:
@@ -87,15 +80,8 @@ def allowed(entry: SeenEntry | None, record: JobRecord | None) -> Allowed:
         and record.archive is None,
         decide=state is JobState.AWAITING_USER and has_bundle,
         reject=(state in REJECTABLE and has_bundle) or tracked,
-        # Une offre suivie s'envoie hors du programme : il n'y a pas de
-        # formulaire préparé, seulement la déclaration de l'utilisateur.
-        mark_sent=(state in SENDABLE and record.application is not None) or tracked,
+        mark_sent=state in SENDABLE,
         archive=state in ARCHIVABLE and has_bundle and record.archive is None,
-        apply_command=(
-            f"python -m agent_emploi apply {record.job.id[:8]}"
-            if state is JobState.APPROVED
-            else None
-        ),
         prepare=manual.preparable(entry, record.job, has_fit=record.fit is not None),
     )
 
@@ -114,7 +100,7 @@ def save_letter(
 
     `lettre.md` d'abord, parce qu'il fait foi : `review_cli.approve` le relit,
     et c'est lui qui part à l'archivage. `jobs.jsonl` ensuite, avec
-    `edited=True`, pour l'étape 6. Les formules interdites sont revérifiées :
+    `edited=True`. Les formules interdites sont revérifiées :
     une correction à la main peut en réintroduire une.
     """
     entry, record = _load(job_id, seen, jobs)
@@ -188,13 +174,8 @@ def declare_sent(
     entry, record = _load(job_id, seen, jobs)
     if not allowed(entry, record).mark_sent:
         raise ActionRefused(
-            f"aucun formulaire préparé à déclarer envoyé (état « {entry.state.value} »)"
+            f"rien à déclarer envoyé à l'état « {entry.state.value} »"
         )
-    if entry.state is JobState.TRACKED:
-        seen.transition(
-            job_id, JobState.SUBMITTED, f"utilisateur:envoyé{f' — {note}' if note else ''}"[:200]
-        )
-        return
     mark_submitted(job_id, seen=seen, job_store=jobs, note=note)
 
 

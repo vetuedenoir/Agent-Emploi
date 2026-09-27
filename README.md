@@ -21,13 +21,6 @@ python -m agent_emploi doctor
 
 `doctor` liste ce qui manque : fichiers de profil, clés d'API, gabarits non remplis.
 
-Pour l'étape 6, qui pilote un navigateur :
-
-```bash
-uv pip install -e ".[apply]" && playwright install chromium
-python -m agent_emploi apply --init-identity   # crée profile/identity.yaml
-```
-
 ## Avancement
 
 | Étape | Contenu | État |
@@ -37,7 +30,7 @@ python -m agent_emploi apply --init-identity   # crée profile/identity.yaml
 | 3 | Filtrage déterministe + verdict d'adéquation | ✅ fait |
 | 4 | Rédaction de la lettre + revue + choix du CV | ✅ fait |
 | 5 | CLI de validation utilisateur | ✅ fait |
-| 6 | Candidature assistée (Playwright, arrêt avant envoi) | ✅ fait |
+| 6 | Candidature assistée (Playwright) | ❌ retirée — chaque site a son formulaire, aucun n'était rempli de bout en bout |
 | 7 | Archivage + boucle bout en bout | ✅ fait |
 | 8 | Source secondaire : France Travail | ✅ fait |
 
@@ -53,9 +46,6 @@ Plan détaillé : `~/.claude/plans/i-would-like-to-vast-catmull.md`
   blocs d'échantillons, pas sur les consignes du gabarit ; celles-ci sont
   retirées avant d'atteindre le modèle.
 - `profile/banned_phrases.txt` — déjà pré-rempli, à enrichir au fil des relectures
-- `profile/identity.yaml` — état civil et liens, pour remplir les formulaires à
-  l'étape 6. Créé par `apply --init-identity`, jamais versionné. Un champ laissé
-  vide n'est pas une erreur : il restera simplement à remplir à la main.
 
 ## Commandes
 
@@ -70,10 +60,8 @@ python -m agent_emploi draft --limit 2     # ne rédige que les 2 mieux notées
 python -m agent_emploi review              # valide les dossiers, un par un
 python -m agent_emploi review --list       # liste les dossiers en attente
 python -m agent_emploi review <réf> --approve   # décide sans passer par le menu
-python -m agent_emploi apply               # remplit les formulaires, sans envoyer
-python -m agent_emploi apply --login wttj  # se connecte d'abord au site
 python -m agent_emploi --no-ask search     # ne demande aucun identifiant à l'invite
-python -m agent_emploi apply <réf> --sent  # enregistre un envoi que vous avez fait
+python -m agent_emploi sent <réf>          # enregistre un envoi que vous avez fait
 python -m agent_emploi run                 # la chaîne entière, jusqu'à validation
 python -m agent_emploi run --dry-run       # idem sans rien enregistrer
 python -m agent_emploi run --letters 2     # borne la seule étape payante
@@ -82,9 +70,8 @@ python -m agent_emploi archive --dry-run   # liste sans rien déplacer
 python -m agent_emploi status              # état des offres et consommation LLM
 python -m agent_emploi calibrate-gate      # compare les seuils de la porte Jev
 python -m agent_emploi web                 # interface web sur 127.0.0.1:8000
-pytest                                     # tests (réseau et navigateur exclus)
+pytest                                     # tests (réseau exclu)
 pytest -m live                             # tests de contrat sur les vraies API
-pytest -m browser                          # tests sur un vrai Chromium
 ```
 
 ## Interface web
@@ -118,12 +105,12 @@ Depuis la fiche, les mêmes actions qu'en CLI :
   réécrit `lettre.md` et `preview.html` dans le dossier, et `jobs.jsonl` avec
   `edited=True`. Les formules interdites sont revérifiées. La lettre reste
   modifiable jusqu'à l'approbation incluse, puis passe en lecture seule une
-  fois le formulaire pré-rempli.
+  fois la candidature déclarée envoyée.
 - **Approuver ou rejeter** un dossier en attente, comme `review`. Un motif de
-  rejet sert à régler les filtres. Un dossier approuvé, pré-rempli ou rendu à
-  la main peut encore être abandonné.
-- **Déclarer envoyée** une candidature pré-remplie ou rendue à la main, comme
-  `apply <réf> --sent`, puis **l'archiver** dans `applications/`.
+  rejet sert à régler les filtres. Un dossier approuvé peut encore être
+  abandonné.
+- **Déclarer envoyée** une candidature approuvée, comme `sent <réf>`, puis
+  **l'archiver** dans `applications/`.
 
 ### Passes et consommation
 
@@ -139,7 +126,6 @@ pour le tableau de bord.
 - **Aucune invite.** Les identifiants France Travail viennent de
   l'environnement ou de `.env`, sinon la source est ignorée, comme dans une
   tâche planifiée.
-- **`apply` reste en CLI** (navigateur visible, mot de passe à l'invite).
 
 `/conso` reprend `llm_usage.jsonl`, Jev compris : appels, échecs, tokens et
 coût, par tâche, par modèle et par jour. On y voit aussi les motifs d'échec
@@ -169,9 +155,7 @@ cours) est refusée avec un lien vers sa fiche. Une offre que les filtres ont
 écartée peut en revanche être ajoutée : c'est justement le cas où on la veut
 malgré eux. Une fois ajoutée, une passe `search` ne la retraite pas.
 
-Le remplissage lui-même (`apply`) reste en CLI : il ouvre un navigateur visible
-et peut demander un mot de passe à l'invite. La fiche d'une offre approuvée
-affiche la commande exacte à lancer. Une action devenue caduque (l'offre a
+Une action devenue caduque (l'offre a
 avancé entre-temps via une passe CLI) est refusée avec un message, sans rien
 écrire.
 
@@ -223,7 +207,7 @@ suivante.
 ## Rédaction
 
 `draft` reprend les offres laissées en `fit_ok` par `screen`, les mieux notées
-d'abord, et s'arrête au nombre fixé par `apply.max_per_day` — c'est la seule
+d'abord, et s'arrête au nombre fixé par `letter.max_per_day` — c'est la seule
 étape payante, elle ne part pas en volume.
 
 | Étape | Coût | Rôle |
@@ -275,7 +259,7 @@ restantes. Cinq issues :
 
 | Touche | Effet |
 |---|---|
-| `a` | approuve : l'offre passe en `approved`, seule porte vers l'étape 6 |
+| `a` | approuve : l'offre passe en `approved`, seule porte vers l'envoi |
 | `e` | ouvre `lettre.md` dans `$EDITOR`, puis réaffiche le dossier corrigé |
 | `o` | ouvre `preview.html` dans le navigateur |
 | `r` | rejette, avec un motif libre |
@@ -285,7 +269,7 @@ Trois points de conception :
 
 - **`lettre.md` fait foi.** Vous corrigez le fichier, pas la base : à
   l'approbation la lettre est relue depuis le dossier, réécrite dans
-  `jobs.jsonl` et c'est elle qui partira à l'étape 6. Les formules interdites
+  `jobs.jsonl` et c'est elle qui sera archivée. Les formules interdites
   sont revérifiées sur votre version — une correction à la main peut en
   réintroduire.
 - **Les réserves n'empêchent pas d'approuver**, elles sont conservées dans la
@@ -301,80 +285,20 @@ automatiques : c'est la même matière pour régler les seuils.
 
 ## Candidature
 
-`apply` reprend les dossiers en `approved`, ouvre l'URL de candidature dans un
-Chromium visible, remplit ce qu'il sait remplir, prend une capture — et
-s'arrête. Les onglets restent ouverts : vous vérifiez, vous complétez, vous
-envoyez.
+La candidature se fait **à la main**, sur le site de l'offre : le lien est dans
+`offre.md`, dans la fiche web (« Candidater ↗ ») et dans le récapitulatif de
+`review`. Le dossier `outbox/` contient ce qu'il faut y joindre — la lettre
+relue et le CV dans la bonne langue.
 
-**Aucune fonction d'envoi n'existe dans le code.** Ce n'est pas un réglage
-qu'on pourrait inverser par erreur : `apply/browser.py` n'expose ni `submit` ni
-`click`, et un test le vérifie à chaque passe. `apply.stop_before_submit` reste
-dans `config.yaml` pour mémoire, sans effet.
+Un remplissage automatique par navigateur (Playwright) a existé ; il a été
+retiré. Chaque ATS a son propre formulaire, et en pratique aucun n'était rempli
+de bout en bout : tout finissait en reprise manuelle.
 
-L'appariement des champs est déterministe (`apply/fields.py`) : un tableau de
-motifs sur le libellé, le `name`, l'`id` et le `placeholder`. Savoir que
-« Prénom » attend un prénom ne justifie pas un appel LLM, et un tableau ne se
-trompe pas deux fois de la même façon. Trois règles de prudence :
-
-- **Les cases à cocher et les listes déroulantes ne sont jamais remplies**,
-  même reconnues. Consentement RGPD, disponibilité, autorisation de travail :
-  ce sont des déclarations, elles vous appartiennent — vous êtes devant
-  l'écran. Elles apparaissent dans les « à faire ».
-- **Un champ obligatoire non reconnu annule tout le remplissage.** Un
-  formulaire à moitié rempli qu'on ne peut pas finir est plus déroutant qu'une
-  page vierge accompagnée de la fiche.
-- **La lettre et le CV viennent du dossier `outbox/`**, pas de la base : c'est
-  la version que vous avez relue, corrections comprises, qui part.
-
-Quand les motifs butent sur un libellé inattendu — « Comment devons-nous vous
-joindre ? » — un appel du tier gratuit (`form_mapping`) est tenté en dernier
-ressort. Son rôle est borné : **le modèle désigne un emplacement, jamais une
-valeur.** Il répond « ce champ attend l'adresse électronique » ; c'est le code
-qui va chercher l'adresse dans `identity.yaml` et qui la pose. Un modèle qui
-divague ne peut donc pas inventer un numéro de téléphone — au pire il se trompe
-de case, ce qui se voit dans le rapport comme dans le navigateur. Les fichiers
-et les cases à cocher lui échappent entièrement, et un champ que les motifs ont
-déjà reconnu n'est jamais réattribué.
-
-L'appel n'a lieu que si le déterministe a échoué, et jamais sur un formulaire
-qu'il a su remplir. Sans clé d'API, sans budget ou avec `--no-llm`, la passe se
-déroule à l'identique : les champs inconnus repartent en `handoff`.
-
-| Issue | État | Ce que vous trouvez |
-|---|---|---|
-| formulaire rempli | `prefilled` | l'onglet ouvert, `formulaire.png`, `candidature.md` |
-| main rendue | `handoff` | `candidature.md` : URL directe, valeurs à recopier, lettre entière |
-
-Captcha, connexion requise, formulaire méconnaissable, page inaccessible :
-autant de `handoff`. Ce n'est pas un incident, c'est le fonctionnement normal
-d'un système qui refuse de deviner — et jamais un blocage silencieux, la fiche
-contient de quoi candidater à la main en cinq minutes.
-
-`apply` ne fait pas passer une offre en `submitted` : le programme n'envoie
-rien, il ne peut donc que prendre acte. Une fois la candidature envoyée de
-votre main, `apply <réf> --sent` l'enregistre — et c'est cette déclaration qui
-rend le dossier archivable.
-
-### Connexion aux sites
-
-Le contexte Chromium est persistant (`apply.browser.user_data_dir`) : une
-session ouverte une fois est conservée d'une passe à l'autre. Vous pouvez donc
-vous connecter à la main dans la fenêtre, ou laisser le programme le faire :
-
-```bash
-python -m agent_emploi apply --login wttj
-python -m agent_emploi apply --login france_travail
-```
-
-Le mot de passe est lu dans `<SITE>_PASSWORD` (fichier `.env`, hors dépôt) ou
-demandé à l'invite en saisie masquée. Il ne va **ni dans `config.yaml`, ni dans
-un journal, ni dans une trace d'exception** — `apply/login.py` n'écrit aucun
-fichier, et un test le vérifie. Un captcha ou une double authentification
-interrompt la tentative et vous laisse finir dans la fenêtre ouverte : la
-session ainsi obtenue est conservée comme si le programme l'avait faite.
-
-La plupart des ATS (Greenhouse, Lever) acceptent une candidature sans compte :
-la connexion ne sert que là où elle est exigée.
+Une fois la candidature envoyée, `sent <réf>` (ou « J'ai envoyé la
+candidature » sur la fiche web) l'enregistre : l'offre passe en `submitted`, et
+c'est cette déclaration qui rend le dossier archivable. Les offres restées en
+`prefilled` ou `handoff` depuis l'ancien remplissage se déclarent envoyées ou
+s'abandonnent de la même façon.
 
 ## La boucle
 
@@ -385,9 +309,8 @@ recherche → filtrage → fit-check → lettre → revue → dossier → arrêt
 ```
 
 Le point d'arrêt n'est pas un réglage, c'est la conception : la boucle mène les
-offres jusqu'à `awaiting_user` et s'y tient. Elle n'appelle ni `review`, qui
-demande une décision humaine, ni `apply`, qui ouvre un navigateur —
-`manager.py` n'importe rien de `apply/`, et un test le vérifie.
+offres jusqu'à `awaiting_user` et s'y tient. Elle n'appelle pas `review`, qui
+demande une décision humaine, et n'envoie rien.
 
 Rien n'y est réimplémenté : chaque étape est la passe existante, appelée dans
 l'ordre avec son propre rapport. Une interruption — plafond de budget,
@@ -396,7 +319,7 @@ elle en est ; la relance reprend au même point.
 
 Deux limites distinctes, parce que les étapes n'ont pas le même coût :
 `--limit` borne la recherche (offres par requête et par source), `--letters`
-borne la rédaction, seule étape payante, qui suit `apply.max_per_day` par
+borne la rédaction, seule étape payante, qui suit `letter.max_per_day` par
 défaut.
 
 `--dry-run` déroule la chaîne entière sans rien écrire. Les appels LLM ont bien
@@ -423,8 +346,8 @@ Deux destinations, deux publics : `seen.jsonl` garde l'état final et son motif,
 ce qui empêche de retraiter une offre et sert à régler les seuils ;
 `applications/` garde le dossier lisible, pour vous.
 
-- **Seul un envoi déclaré ferme une candidature.** `prefilled` et `handoff` ne
-  sont pas des fins : la main est encore à vous. C'est `apply <réf> --sent` qui
+- **Seul un envoi déclaré ferme une candidature.** `approved` n'est pas une
+  fin : la main est encore à vous. C'est `sent <réf>` qui
   clôt le dossier, et donc lui seul qui le rend archivable. `--include-rejected`
   classe aussi les dossiers que vous avez rejetés avant envoi.
 - **`README.md` n'est jamais réécrit.** Le programme l'écrit une fois — avec la
@@ -457,7 +380,7 @@ Trois particularités qui expliquent la conception :
    slugs. La source sur-échantillonne et dédoublonne, sans quoi une seule offre
    remplirait toute la page de résultats.
 3. **Le détail expose `apply_url` et `ats`** : la majorité des offres redirigent
-   vers un ATS externe (Greenhouse, Lever…). C'est ce qui pilotera l'étape 6.
+   vers un ATS externe (Greenhouse, Lever…), où l'on candidate.
 
 Aucun de ces points d'entrée n'est contractuel. `pytest -m live` vérifie qu'ils
 répondent toujours — en cas d'échec, relever les nouvelles valeurs plutôt que
@@ -477,8 +400,7 @@ C'est le piège de cette source, et il n'a rien d'évident :
 | Où | `francetravail.fr`, votre espace personnel | [`francetravail.io`](https://francetravail.io) |
 | À quoi il sert | **postuler** sur les offres hébergées par France Travail | **chercher** des offres via l'API |
 | Ce qu'on en tire | un e-mail et un mot de passe | un identifiant client et une clé secrète |
-| Variables | `FRANCE_TRAVAIL_EMAIL` / `_PASSWORD` | `FRANCE_TRAVAIL_CLIENT_ID` / `_CLIENT_SECRET` |
-| Où ça sert | `apply --login france_travail` (étape 6) | la source, dès `search` |
+| Où ça sert | dans votre navigateur, à la main | la source, dès `search` (`FRANCE_TRAVAIL_CLIENT_ID` / `_CLIENT_SECRET`) |
 
 **Votre compte candidat n'ouvre pas l'API.** Le compte développeur est gratuit
 et distinct : il se crée en deux minutes, on y déclare une application, on lui
@@ -500,8 +422,7 @@ FRANCE_TRAVAIL_CLIENT_ID : PAR_agentemploi_a1b2c3
 FRANCE_TRAVAIL_CLIENT_SECRET :
 ```
 
-C'est le même principe que `apply --login` : la clé secrète est saisie en
-masqué, ne vit que le temps de la commande, et n'est écrite **ni dans un
+La clé secrète est saisie en masqué, ne vit que le temps de la commande, et n'est écrite **ni dans un
 fichier, ni dans un journal**. Elle n'est pas mémorisée d'une commande à
 l'autre — pour ne la saisir qu'une fois, mieux vaut `.env`.
 
@@ -517,23 +438,6 @@ passe continue sur les autres sources : une source non configurée ne fait
 échouer personne. C'est le même mécanisme qui protège d'une faute de frappe
 dans `search.sources`, à ceci près qu'une source *inconnue*, elle, fait échouer
 `doctor` : rien ne la rattraperait à l'exécution.
-
-### Postuler sur une offre France Travail
-
-Une partie des offres se candidate sur `candidat.francetravail.fr`, qui demande
-d'être connecté. L'étape 6 sait s'y connecter comme sur WTTJ :
-
-```bash
-python -m agent_emploi apply --login france_travail
-```
-
-L'e-mail vient de `FRANCE_TRAVAIL_EMAIL` ou de l'invite, le mot de passe de
-`FRANCE_TRAVAIL_PASSWORD` ou d'une saisie masquée — jamais du disque, jamais
-d'un journal. La connexion France Travail se fait en deux écrans et demande
-souvent un code envoyé par courriel : dans ce cas le programme s'arrête et vous
-laisse finir dans la fenêtre ouverte, et la session obtenue est conservée dans
-le profil Chromium persistant comme si le programme l'avait faite. Ce n'est pas
-un échec, c'est le comportement prévu.
 
 Trois différences de fond avec WTTJ, qui se voient dans le code :
 
@@ -563,7 +467,7 @@ Les libellés de contrat sont ramenés au vocabulaire de `config.yaml` (« CDI �
 « Stage », « Alternance ») : laisser passer « Contrat à durée indéterminée »
 ferait rejeter par le filtre local une offre qu'il est censé accepter. Le nom
 de l'entreprise est souvent masqué sur ces offres — c'est alors le diffuseur
-(APEC, Indeed…) qui est affiché, et lui aussi qui devient l'`ats` de l'étape 6.
+(APEC, Indeed…) qui est affiché, et lui aussi qui devient l'`ats` de l'offre.
 
 ### Le cas du stage, ou pourquoi on ne fait pas confiance aux champs
 
@@ -597,7 +501,7 @@ ignorés plutôt qu'en échec.
 agent_emploi/
   models.py      Job, JobState, machine à états, identifiants
   config.py      chargement et validation de config.yaml, lecture de .env
-  cli.py         doctor / search / screen / draft / review / apply / run /
+  cli.py         doctor / search / screen / draft / review / sent / run /
                  archive / status / web
   manager.py     la boucle bout en bout, jusqu'à votre validation — et pas plus
   search.py      passe de recherche : découverte et mémorisation
@@ -605,19 +509,13 @@ agent_emploi/
   screen.py      passe de filtrage : filtres -> enrichissement -> fit-check
   draft.py       passe de rédaction : lettre -> contrôle -> revue -> dossier
   review_cli.py  passe de validation : approuver / éditer / rejeter / plus tard
+  sent.py        déclaration d'un envoi fait à la main
   manual.py      offres ajoutées à la main : suivi, ou préparation sans filtres
   profile.py     CV, voix, liste noire, choix du CV (aucun LLM)
   outbox.py      écriture du dossier remis à l'utilisateur
   agents/fit.py     verdict d'adéquation (LLM, tier gratuit)
   agents/letter.py  rédaction de la lettre (LLM, tier payant)
   agents/review.py  relecture de la lettre (LLM, tier gratuit)
-  apply/fields.py   appariement champ <-> information (aucun navigateur)
-  apply/mapping.py  recours LLM sur un libellé inconnu (tier gratuit)
-  apply/identity.py état civil, lu dans profile/identity.yaml
-  apply/browser.py  Playwright, contexte persistant — aucune fonction d'envoi
-  apply/login.py    connexion aux sites, mot de passe jamais écrit sur disque
-  apply/handoff.py  la fiche candidature.md remise quand on rend la main
-  apply/runner.py   passe de candidature : remplissage, états, rapport
   sources/       wttj.py (index Algolia + API v3)
                  france_travail.py (API officielle, OAuth2)
   store/seen.py  mémoire des offres, dédoublonnage
@@ -626,9 +524,9 @@ agent_emploi/
   llm/           routeur, budget, fournisseurs (anthropic, groq, gemini)
   web/           interface locale : FastAPI + Jinja2 + htmx (vendu, sans CDN)
 config.yaml      tout le réglable : requêtes, filtres, modèles, plafonds
-profile/         CV, voix, formules interdites, état civil
+profile/         CV, voix, formules interdites
 outbox/          dossiers en cours, en attente de décision ou d'envoi
 applications/    candidatures closes, avec leur fiche de suivi
-data/            seen.jsonl, jobs.jsonl, llm_usage.jsonl, passes.jsonl,
-                 browser/ (non versionnés)
+data/            seen.jsonl, jobs.jsonl, llm_usage.jsonl, passes.jsonl
+                 (non versionnés)
 ```

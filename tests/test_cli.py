@@ -27,7 +27,6 @@ def write_setup(
             "cv_en": str(profile_dir / "cv_en.pdf"),
             "voice": str(profile_dir / "voice.md"),
             "banned_phrases": str(profile_dir / "banned.txt"),
-            "identity": str(profile_dir / "identity.yaml"),
         },
         "paths": {
             "data": str(tmp_path / "data"),
@@ -313,52 +312,21 @@ class TestReview:
         assert "approuvés" in capsys.readouterr().out
 
 
-class TestApply:
-    """La commande de candidature, sur les chemins qui n'ouvrent aucun navigateur."""
+class TestSent:
+    """La déclaration d'un envoi fait à la main."""
 
-    def test_init_identity_ecrit_le_gabarit(self, tmp_path, capsys):
-        config_path = write_setup(tmp_path)
-        assert main(["--config", str(config_path), "apply", "--init-identity"]) == 0
-
-        out = capsys.readouterr().out
-        assert "gabarit écrit" in out
-        assert (tmp_path / "profile" / "identity.yaml").exists()
-
-    def test_etat_civil_absent_arrete_avant_le_navigateur(self, tmp_path, capsys):
-        """Aucun Chromium n'est lancé : l'erreur tombe avant."""
-        config_path = write_setup(tmp_path)
-        assert main(["--config", str(config_path), "apply"]) == 1
-        assert "état civil introuvable" in capsys.readouterr().err
-
-    def test_rien_a_faire_quand_aucun_dossier_nest_approuve(self, tmp_path, capsys):
-        config_path = write_setup(tmp_path)
-        main(["--config", str(config_path), "apply", "--init-identity"])
-        capsys.readouterr()
-
-        assert main(["--config", str(config_path), "apply"]) == 0
-        assert "Aucun dossier approuvé" in capsys.readouterr().out
-
-    def test_doctor_signale_letat_civil_a_completer(self, tmp_path, capsys):
-        config_path = write_setup(tmp_path)
-        main(["--config", str(config_path), "apply", "--init-identity"])
-        capsys.readouterr()
-
-        main(["--config", str(config_path), "doctor"])
-        assert "état civil" in capsys.readouterr().out
-
-    def test_marquer_envoye_exige_une_candidature_preparee(self, tmp_path, capsys):
+    def test_marquer_envoye_exige_un_dossier_approuve(self, tmp_path, capsys):
         config_path = write_setup(tmp_path)
         job, _ = TestReview.stage_bundle(self, tmp_path, config_path)
-        main(["--config", str(config_path), "review", job.id[:8], "--approve"])
         capsys.readouterr()
 
-        # Aucun formulaire n'a été rempli : il n'y a rien à déclarer envoyé.
-        assert main(["--config", str(config_path), "apply", job.id[:8], "--sent"]) == 1
-        assert "aucune candidature préparée" in capsys.readouterr().err
+        # Encore en attente de décision : rien à déclarer envoyé.
+        assert main(["--config", str(config_path), "sent", job.id[:8]]) == 1
+        assert "non approuvé" in capsys.readouterr().err
 
-    def test_marquer_envoye_apres_remplissage(self, tmp_path, capsys):
+    def test_marquer_envoye_apres_approbation(self, tmp_path, capsys):
         from agent_emploi.config import load_config
-        from agent_emploi.models import ApplyOutcome, JobState
+        from agent_emploi.models import JobState
         from agent_emploi.store.jobs import JobStore
         from agent_emploi.store.seen import SeenStore
 
@@ -367,17 +335,11 @@ class TestApply:
         main(["--config", str(config_path), "review", job.id[:8], "--approve"])
         capsys.readouterr()
 
-        config = load_config(config_path)
-        store = JobStore(config.paths.jobs_file)
-        store.save(
-            job,
-            application=ApplyOutcome(status="prefilled", apply_url="https://ats/x"),
-        )
-        SeenStore(config.paths.seen_file).transition(job.id, JobState.PREFILLED)
-
-        assert main(["--config", str(config_path), "apply", job.id[:8], "--sent"]) == 0
+        assert main(["--config", str(config_path), "sent", job.id[:8]]) == 0
         assert "envoi enregistré" in capsys.readouterr().out
+        config = load_config(config_path)
         assert SeenStore(config.paths.seen_file).get(job.id).state is JobState.SUBMITTED
+        assert JobStore(config.paths.jobs_file).get(job.id).submitted_at is not None
 
 
 class TestArchive:
@@ -385,24 +347,9 @@ class TestArchive:
 
     def sent_bundle(self, tmp_path, config_path):
         """Une candidature menée jusqu'à l'envoi déclaré par l'utilisateur."""
-        from agent_emploi.config import load_config
-        from agent_emploi.models import ApplyOutcome, JobState
-        from agent_emploi.store.jobs import JobStore
-        from agent_emploi.store.seen import SeenStore
-
         job, directory = TestReview.stage_bundle(self, tmp_path, config_path)
         main(["--config", str(config_path), "review", job.id[:8], "--approve"])
-
-        config = load_config(config_path)
-        JobStore(config.paths.jobs_file).save(
-            job,
-            application=ApplyOutcome(
-                status="prefilled", apply_url="https://ats/x", submitted=True
-            ),
-        )
-        seen = SeenStore(config.paths.seen_file)
-        seen.transition(job.id, JobState.PREFILLED)
-        seen.transition(job.id, JobState.SUBMITTED, "utilisateur:envoyé")
+        main(["--config", str(config_path), "sent", job.id[:8]])
         return job, directory
 
     def test_rien_a_archiver_sans_envoi_declare(self, tmp_path, capsys):
