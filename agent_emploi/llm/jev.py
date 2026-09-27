@@ -67,9 +67,18 @@ class JevResponse:
 
 
 def serialized_length(state: Any) -> int:
-    """Longueur de l'état tel que l'API le mesure : JSON compact, sans échappement
-    des caractères non ASCII (un « é » compte pour un caractère)."""
-    return len(json.dumps(state, ensure_ascii=False, separators=(",", ":")))
+    """Longueur de l'état, mesurée comme l'API pourrait la mesurer au pire.
+
+    La documentation dit « 8 000 caractères » sans dire lesquels. Trois états
+    mesurés à 7 999–8 000 en JSON compact ont été refusés (HTTP 422) : l'API
+    compte donc plus large. Deux lectures plausibles l'expliquent, en unités
+    UTF-16 (le `.length` de JavaScript, où un émoji compte double) ou en JSON
+    avec espaces après `,` et `:`. On retient les deux à la fois : la marge
+    coûte quelques dizaines de caractères de description, un refus coûte
+    l'offre entière.
+    """
+    text = json.dumps(state, ensure_ascii=False)
+    return len(text.encode("utf-16-le")) // 2
 
 
 class JevClient:

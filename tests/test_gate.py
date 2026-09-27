@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from agent_emploi.agents.gate import (
@@ -82,6 +84,14 @@ class TestState:
         state = build_state(make_job("ligne \"citée\"\n" * 2000), "CV " * 500)
         assert serialized_length(state) <= MAX_STATE_CHARS
         assert state["offre"]["description"]
+
+    def test_emoji_and_spacing_count_toward_the_limit(self):
+        # Refusé en réalité à 8 000 en JSON compact : les émojis comptent
+        # double en UTF-16, et l'API peut compter les espaces du JSON.
+        state = build_state(make_job("🚀 Stage IA, agents: RAG. " * 600), "CV " * 500)
+        compact = json.dumps(state, ensure_ascii=False, separators=(",", ":"))
+        assert len(compact.encode("utf-16-le")) // 2 <= MAX_STATE_CHARS
+        assert len(json.dumps(state, ensure_ascii=False)) <= MAX_STATE_CHARS
 
     def test_short_offer_is_sent_whole(self):
         job = make_job(location="Paris", remote=None)
