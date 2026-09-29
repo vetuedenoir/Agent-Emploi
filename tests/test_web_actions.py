@@ -1,6 +1,7 @@
 """Interface web en écriture : lettre, décision, envoi, archivage."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -177,6 +178,111 @@ class TestSentAndArchive:
 
         # Plus rien à archiver une seconde fois.
         assert client.post(f"/offres/{job.id}/archiver").status_code == 409
+
+
+class TestOwnLetter:
+    @pytest.fixture
+    def retained(self, web_config):
+        """Une offre retenue par le fit-check, sans lettre ni dossier."""
+        job = Job.build(
+            source="wttj", url="https://example.com/jobs/beta", company="Beta", title="Dev IA"
+        )
+        seen = seen_store(web_config)
+        seen.record(job)
+        seen.transition(job.id, JobState.PRESCREENED)
+        seen.transition(job.id, JobState.FIT_OK)
+        job_store(web_config).save(
+            job,
+            fit=FitVerdict(
+                score=70, verdict="apply", reason="ok", language="en", cv="data"
+            ),
+        )
+        return job
+
+    def test_form_shown_only_while_retained(self, client, retained, bundle):
+        assert "/ma-lettre" in client.get(f"/offres/{retained.id}").text
+        job, _ = bundle
+        assert "/ma-lettre" not in client.get(f"/offres/{job.id}").text
+
+    def test_own_letter_builds_the_bundle(self, client, retained, web_config):
+        response = client.post(
+            f"/offres/{retained.id}/ma-lettre",
+            data={"text": "Dear team, I am passionné par agents.\r\n"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert state(web_config, retained) is JobState.AWAITING_USER
+
+        record = job_store(web_config).get(retained.id)
+        assert record.letter.authored
+        assert record.letter.language == "en"
+        assert record.letter.cv == "data"
+        assert record.letter.banned_hits == ["passionné par"]
+        assert record.review is None
+        directory = Path(record.outbox)
+        assert read_letter(directory) == "Dear team, I am passionné par agents."
+        assert (directory / "preview.html").exists()
+
+        page = client.get(response.headers["location"]).text
+        assert "écrite à la main" in page
+        # La décision reste une étape à part.
+        client.post(f"/offres/{retained.id}/approuver", data={})
+        assert state(web_config, retained) is JobState.APPROVED
+
+    def test_empty_letter_is_refused(self, client, retained, web_config):
+        response = client.post(f"/offres/{retained.id}/ma-lettre", data={"text": "  "})
+        assert response.status_code == 409
+        assert state(web_config, retained) is JobState.FIT_OK
+
+    def test_refused_once_drafted(self, client, bundle):
+        job, _ = bundle
+        response = client.post(f"/offres/{job.id}/ma-lettre", data={"text": "Autre."})
+        assert response.status_code == 409
+
+
+class TestInterview:
+    @pytest.fixture
+    def sent(self, client, bundle, web_config):
+        job, directory = bundle
+        seen_store(web_config).transition(job.id, JobState.APPROVED)
+        client.post(f"/offres/{job.id}/envoyee", data={})
+        return job
+
+    def test_refused_before_sending(self, client, bundle, web_config):
+        job, _ = bundle
+        assert client.post(f"/offres/{job.id}/entretien", data={}).status_code == 409
+        assert state(web_config, job) is JobState.AWAITING_USER
+
+    def test_mark_interview_with_date(self, client, sent, web_config):
+        response = client.post(
+            f"/offres/{sent.id}/entretien",
+            data={"day": "2026-10-12", "note": "visio"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert state(web_config, sent) is JobState.INTERVIEW
+        assert seen_store(web_config).get(sent.id).reason == "utilisateur:entretien — visio"
+        record = job_store(web_config).get(sent.id)
+        assert record.interview_at.astimezone().date().isoformat() == "2026-10-12"
+
+        page = client.get(response.headers["location"]).text
+        assert "Entretien enregistré." in page
+        assert "12/10/2026" in page
+        # Déclaré une fois : plus de bouton, et un second envoi est refusé.
+        assert "/entretien" not in page
+        assert client.post(f"/offres/{sent.id}/entretien", data={}).status_code == 409
+
+    def test_bad_date_is_refused(self, client, sent, web_config):
+        response = client.post(f"/offres/{sent.id}/entretien", data={"day": "demain"})
+        assert response.status_code == 409
+        assert state(web_config, sent) is JobState.SUBMITTED
+
+    def test_interview_can_be_archived(self, client, sent, web_config):
+        client.post(f"/offres/{sent.id}/entretien", data={})
+        client.post(f"/offres/{sent.id}/archiver")
+        archive = Path(job_store(web_config).get(sent.id).archive)
+        followup = (archive / "README.md").read_text(encoding="utf-8")
+        assert "entretien obtenu" in followup
 
 
 class TestGuards:

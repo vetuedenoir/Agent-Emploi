@@ -45,6 +45,7 @@ FOLLOWUP_DAYS = 14
 #: pas déclaré l'envoi, le dossier est encore à faire.
 ARCHIVABLE: dict[JobState, str] = {
     JobState.SUBMITTED: "envoyée",
+    JobState.INTERVIEW: "envoyée, entretien obtenu",
     JobState.REJECTED: "rejetée avant envoi",
 }
 
@@ -167,7 +168,11 @@ def followup_markdown(
     if record.fit is not None:
         lines.append(f"- Adéquation : {record.fit.score}/100 — {record.fit.reason}")
     if record.letter is not None:
-        edited = " (corrigée à la main)" if record.letter.edited else ""
+        edited = (
+            " (écrite à la main)"
+            if record.letter.authored
+            else " (corrigée à la main)" if record.letter.edited else ""
+        )
         lines.append(
             f"- Lettre : {record.letter.word_count} mots, "
             f"{record.letter.language}{edited}"
@@ -183,7 +188,14 @@ def followup_markdown(
         lines += [f"- `{name}` — {_PIECES[name]}" for name in pieces]
 
     lines += ["", "## Suivi", ""]
-    if entry.state is JobState.SUBMITTED:
+    if entry.state is JobState.INTERVIEW:
+        day = record.interview_at.strftime("%d/%m/%Y") if record.interview_at else "…"
+        lines += [
+            "- [x] Réponse reçue : entretien obtenu",
+            f"- [ ] Entretien le {day} :",
+            "- [ ] Issue de l'entretien :",
+        ]
+    elif entry.state is JobState.SUBMITTED:
         relance = (closed + timedelta(days=FOLLOWUP_DAYS)).strftime("%d/%m/%Y")
         lines += [
             f"- [ ] Relancer à partir du {relance} (J+{FOLLOWUP_DAYS})",

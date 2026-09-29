@@ -1,4 +1,4 @@
-"""Actions sur une offre : lettre, décision, envoi, archivage.
+"""Actions sur une offre : lettre, décision, envoi, entretien, archivage.
 
 Des formulaires classiques, suivis d'une redirection vers la fiche : ils
 fonctionnent sans JavaScript, et recharger la page ne rejoue pas l'action.
@@ -65,6 +65,18 @@ def save_letter(request: Request, job_id: str, text: str = Form("")):
     )
 
 
+@router.post("/offres/{job_id}/ma-lettre")
+def write_own_letter(request: Request, job_id: str, text: str = Form("")):
+    config = request.app.state.config
+    return _run(
+        request,
+        job_id,
+        "ma-lettre",
+        lambda **stores: actions.write_own_letter(job_id, text, config=config, **stores),
+        draft=text,
+    )
+
+
 @router.post("/offres/{job_id}/approuver")
 def approve(request: Request, job_id: str, note: str = Form("")):
     config = request.app.state.config
@@ -98,6 +110,18 @@ def mark_sent(request: Request, job_id: str, note: str = Form("")):
         job_id,
         "envoyee",
         lambda **stores: actions.declare_sent(job_id, note=_note(note), **stores),
+    )
+
+
+@router.post("/offres/{job_id}/entretien")
+def mark_interview(request: Request, job_id: str, day: str = Form(""), note: str = Form("")):
+    return _run(
+        request,
+        job_id,
+        "entretien",
+        lambda **stores: actions.declare_interview(
+            job_id, day=day.strip() or None, note=_note(note), **stores
+        ),
     )
 
 

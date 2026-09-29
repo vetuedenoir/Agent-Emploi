@@ -409,6 +409,19 @@ class FranceTravailSource:
 
         params.update(self._contract_params(query))
 
+        # L'API filtre sur un rayon autour d'une commune, désignée par son code
+        # INSEE ; elle ignore les coordonnées. Sans code, pas de filtre.
+        location = query.location
+        if location is not None:
+            if location.insee:
+                params["commune"] = location.insee
+                params["distance"] = str(location.radius_km)
+            else:
+                logger.warning(
+                    "france_travail: search.location sans code INSEE, "
+                    "recherche sur toute la France"
+                )
+
         # `query.countries` n'a pas d'équivalent : l'API ne publie que des
         # offres en France. Un pays demandé autre que la France signalerait une
         # attente que cette source ne peut pas tenir.

@@ -92,7 +92,7 @@ a.tile:hover { text-decoration: none; border-color: var(--accent); }
 }
 .state-fit_ok, .state-drafted, .state-reviewed { background: var(--info-bg); }
 .state-awaiting_user, .state-handoff { background: var(--warn-bg); color: var(--warn); }
-.state-approved, .state-prefilled, .state-submitted { background: var(--ok-bg); color: var(--ok); }
+.state-approved, .state-prefilled, .state-submitted, .state-interview { background: var(--ok-bg); color: var(--ok); }
 .state-rejected { background: var(--ko-bg); color: var(--ko); }
 
 .cv-badge {

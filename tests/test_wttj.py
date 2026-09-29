@@ -12,7 +12,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from agent_emploi.sources.base import SearchQuery, SourceError
+from agent_emploi.sources.base import Location, SearchQuery, SourceError
 from agent_emploi.sources.wttj import WttjSource, html_to_text
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -147,6 +147,32 @@ class TestSearch:
         source = fake_source(route(search={"unexpected": True}))
         with pytest.raises(SourceError, match="hits"):
             source.search(SearchQuery(text="ml"))
+
+    def test_location_becomes_a_geo_radius(self):
+        payloads = []
+        inner = route()
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if "algolia.net" in str(request.url):
+                payloads.append(json.loads(request.content))
+            return inner(request)
+
+        location = Location(lat=48.8566, lng=2.3522, radius_km=30)
+        fake_source(handler).search(SearchQuery(text="ml", limit=1, location=location))
+        assert payloads[0]["aroundLatLng"] == "48.8566,2.3522"
+        assert payloads[0]["aroundRadius"] == 30000
+
+    def test_no_location_means_no_geo_filter(self):
+        payloads = []
+        inner = route()
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if "algolia.net" in str(request.url):
+                payloads.append(json.loads(request.content))
+            return inner(request)
+
+        fake_source(handler).search(SearchQuery(text="ml", limit=1))
+        assert "aroundLatLng" not in payloads[0]
 
 
 class TestFacetFilters:

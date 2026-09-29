@@ -3,10 +3,12 @@
 Le programme ne remplit ni n'envoie aucun formulaire : chaque site a le sien.
 Il prépare le dossier, l'utilisateur candidate lui-même sur le site, puis
 déclare l'envoi — c'est cette déclaration, et elle seule, qui fait passer une
-offre à `submitted`.
+offre à `submitted`. Un entretien obtenu ensuite se déclare de la même façon.
 """
 
 from __future__ import annotations
+
+from datetime import datetime
 
 from agent_emploi.models import JobRecord, JobState, utcnow
 from agent_emploi.store.jobs import JobStore
@@ -40,5 +42,31 @@ def mark_submitted(
         job_id,
         JobState.SUBMITTED,
         f"utilisateur:envoyé{f' — {note}' if note else ''}"[:200],
+    )
+    return saved
+
+
+def mark_interview(
+    job_id: str,
+    *,
+    seen: SeenStore,
+    job_store: JobStore,
+    at: datetime | None = None,
+    note: str | None = None,
+) -> JobRecord | None:
+    """Enregistre qu'une candidature envoyée a débouché sur un entretien.
+
+    `at` est le jour de l'entretien, s'il est connu. Retourne `None` si l'offre
+    est inconnue ou n'a pas été déclarée envoyée.
+    """
+    entry, record = seen.get(job_id), job_store.get(job_id)
+    if entry is None or record is None or entry.state is not JobState.SUBMITTED:
+        return None
+
+    saved = job_store.save(record.job, interview_at=at or utcnow())
+    seen.transition(
+        job_id,
+        JobState.INTERVIEW,
+        f"utilisateur:entretien{f' — {note}' if note else ''}"[:200],
     )
     return saved

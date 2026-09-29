@@ -19,6 +19,7 @@ from typing import Callable, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
+from agent_emploi.config import Location
 from agent_emploi.models import Job
 
 
@@ -31,6 +32,8 @@ class SearchQuery(BaseModel):
 
     text: str
     countries: list[str] = Field(default_factory=list)
+    #: Zone ciblée. Absente : tout le pays.
+    location: Location | None = None
     contracts: list[str] = Field(default_factory=list)
     remote: list[str] = Field(default_factory=list)
     limit: int = 40

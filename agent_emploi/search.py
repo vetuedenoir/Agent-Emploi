@@ -74,6 +74,7 @@ def run_search(
                 query = SearchQuery(
                     text=text,
                     countries=config.search.countries,
+                    location=config.search.location,
                     contracts=config.search.contracts,
                     remote=config.search.remote,
                     limit=per_query,

@@ -10,19 +10,21 @@ peut-être d'avant une passe CLI qui a fait avancer l'offre entre-temps.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
 from agent_emploi import manual
 from agent_emploi.agents.fit import FitAgent
 from agent_emploi.config import Config
+from agent_emploi.draft import deliver_own_letter
 from agent_emploi.llm.budget import BudgetExceeded
 from agent_emploi.llm.router import LlmError
 from agent_emploi.models import JobRecord, JobState, SeenEntry, UserDecision, utcnow
 from agent_emploi.outbox import letter_markdown, refresh_preview
 from agent_emploi.profile import BannedPhrases
 from agent_emploi.review_cli import Pending, approve, concerns, reject
-from agent_emploi.sent import SENDABLE, mark_submitted
+from agent_emploi.sent import SENDABLE, mark_interview, mark_submitted
 from agent_emploi.store.archive import ARCHIVABLE, archive_and_save
 from agent_emploi.store.jobs import JobStore
 from agent_emploi.store.seen import SeenStore
@@ -60,9 +62,13 @@ class Allowed:
     """Les actions proposées sur une fiche, selon l'état de l'offre."""
 
     edit_letter: bool = False
+    #: Offre retenue sans lettre : l'utilisateur peut l'écrire lui-même au lieu
+    #: d'attendre la passe `draft`.
+    write_letter: bool = False
     decide: bool = False
     reject: bool = False
     mark_sent: bool = False
+    mark_interview: bool = False
     archive: bool = False
     #: Offre ajoutée à la main, à faire passer au fit-check (ou à y repasser).
     prepare: bool = False
@@ -78,9 +84,13 @@ def allowed(entry: SeenEntry | None, record: JobRecord | None) -> Allowed:
         edit_letter=record.letter is not None
         and state in LETTER_EDITABLE
         and record.archive is None,
+        write_letter=state is JobState.FIT_OK
+        and record.fit is not None
+        and record.letter is None,
         decide=state is JobState.AWAITING_USER and has_bundle,
         reject=(state in REJECTABLE and has_bundle) or tracked,
         mark_sent=state in SENDABLE,
+        mark_interview=state is JobState.SUBMITTED,
         archive=state in ARCHIVABLE and has_bundle and record.archive is None,
         prepare=manual.preparable(entry, record.job, has_fit=record.fit is not None),
     )
@@ -122,6 +132,30 @@ def save_letter(
         (directory / "lettre.md").write_text(letter_markdown(updated), encoding="utf-8")
         refresh_preview(directory, updated)
     return jobs.save(record.job, letter=letter)
+
+
+def write_own_letter(
+    job_id: str, text: str, *, seen: SeenStore, jobs: JobStore, config: Config
+) -> Path:
+    """Livre la lettre que l'utilisateur a écrite, dossier compris.
+
+    L'offre rejoint `awaiting_user` comme après `draft` : la décision reste une
+    étape à part, avec les réserves (longueur, formules, CV) sous les yeux.
+    """
+    entry, record = _load(job_id, seen, jobs)
+    if not allowed(entry, record).write_letter:
+        raise ActionRefused(
+            f"seule une offre retenue sans lettre s'écrit à la main "
+            f"(état « {entry.state.value} »)"
+        )
+    text = text.replace("\r\n", "\n").strip()
+    if not text:
+        raise ActionRefused("la lettre est vide")
+    try:
+        drafted = deliver_own_letter(config, record, text, seen=seen, job_store=jobs)
+    except OSError as exc:
+        raise ActionRefused(f"dossier impossible à écrire : {exc}") from exc
+    return drafted.directory
 
 
 def _pending(record: JobRecord, config: Config) -> Pending:
@@ -177,6 +211,34 @@ def declare_sent(
             f"rien à déclarer envoyé à l'état « {entry.state.value} »"
         )
     mark_submitted(job_id, seen=seen, job_store=jobs, note=note)
+
+
+def declare_interview(
+    job_id: str,
+    *,
+    day: str | None,
+    note: str | None,
+    seen: SeenStore,
+    jobs: JobStore,
+) -> None:
+    """Prend acte d'un entretien obtenu après l'envoi.
+
+    `day` est la date saisie (`AAAA-MM-JJ`), facultative.
+    """
+    entry, record = _load(job_id, seen, jobs)
+    if not allowed(entry, record).mark_interview:
+        raise ActionRefused(
+            f"seule une candidature envoyée débouche sur un entretien "
+            f"(état « {entry.state.value} »)"
+        )
+    at = None
+    if day:
+        try:
+            # Midi local : la date reste la même une fois convertie en UTC.
+            at = datetime.fromisoformat(day).replace(hour=12).astimezone()
+        except ValueError as exc:
+            raise ActionRefused(f"date d'entretien illisible : {day}") from exc
+    mark_interview(job_id, seen=seen, job_store=jobs, at=at, note=note)
 
 
 def start_prepare(

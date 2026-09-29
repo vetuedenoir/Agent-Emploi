@@ -83,8 +83,9 @@ Ouvrez ensuite <http://127.0.0.1:8000>. Depuis l'interface, vous pouvez :
 - lancer une recherche et suivre son avancement ;
 - parcourir les offres trouvées, retenues ou écartées ;
 - relire, corriger, approuver ou rejeter chaque lettre ;
+- écrire vous-même la lettre d'une offre retenue, sans attendre la rédaction ;
 - ajouter une offre repérée ailleurs en collant simplement son adresse ;
-- suivre vos candidatures envoyées et votre consommation.
+- suivre vos candidatures envoyées, noter un entretien obtenu, et votre consommation.
 
 L'interface n'est accessible que depuis votre propre ordinateur.
 
@@ -94,6 +95,7 @@ L'interface n'est accessible que depuis votre propre ordinateur.
 python -m agent_emploi run        # recherche, tri et rédaction en une fois
 python -m agent_emploi review     # relire et valider les dossiers
 python -m agent_emploi sent <réf> # indiquer qu'une candidature est envoyée
+python -m agent_emploi interview <réf> --date 2026-10-12  # noter un entretien obtenu
 python -m agent_emploi archive    # ranger les candidatures envoyées
 python -m agent_emploi status     # où en sont les offres
 python -m agent_emploi --help     # toutes les commandes

@@ -238,6 +238,11 @@ class WttjSource:
             "page": page,
             "attributesToHighlight": [],
         }
+        if query.location is not None:
+            # Recherche géographique native d'Algolia, sur `_geoloc` : une offre
+            # multi-sites est retenue dès qu'un de ses bureaux est dans le rayon.
+            payload["aroundLatLng"] = f"{query.location.lat},{query.location.lng}"
+            payload["aroundRadius"] = query.location.radius_km * 1000
         facet_filters = self._facet_filters(query)
         if facet_filters:
             payload["facetFilters"] = facet_filters

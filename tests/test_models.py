@@ -87,7 +87,15 @@ class TestTransitions:
         with pytest.raises(InvalidTransition):
             check_transition(JobState.APPROVED, JobState.PREFILLED)
 
+    def test_sent_application_can_lead_to_an_interview(self):
+        check_transition(JobState.SUBMITTED, JobState.INTERVIEW)
+        for state in (JobState.APPROVED, JobState.TRACKED, JobState.AWAITING_USER):
+            with pytest.raises(InvalidTransition):
+                check_transition(state, JobState.INTERVIEW)
+
     def test_terminal_states_have_no_exit(self):
+        with pytest.raises(InvalidTransition):
+            check_transition(JobState.INTERVIEW, JobState.SUBMITTED)
         with pytest.raises(InvalidTransition):
             check_transition(JobState.SUBMITTED, JobState.DISCOVERED)
         with pytest.raises(InvalidTransition):

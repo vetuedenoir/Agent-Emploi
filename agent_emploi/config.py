@@ -80,12 +80,32 @@ class PathsConfig(BaseModel):
             directory.mkdir(parents=True, exist_ok=True)
 
 
+class Location(BaseModel):
+    """Zone de recherche : un point et un rayon autour de lui.
+
+    Les sources ne partagent pas de vocabulaire de lieux (WTTJ raisonne en
+    coordonnées, France Travail en codes INSEE) : chacune lit ici ce qu'elle
+    sait exploiter. Le rayon, lui, compte : une offre « Paris » est souvent
+    domiciliée à Puteaux ou Issy, qu'un filtre sur le seul nom de ville perdrait.
+    """
+
+    #: Nom lisible, pour les journaux uniquement.
+    label: str = ""
+    lat: float
+    lng: float
+    #: Code commune INSEE du centre (75056 pour Paris), lu par France Travail.
+    insee: str | None = None
+    radius_km: int = Field(default=30, gt=0)
+
+
 class SearchConfig(BaseModel):
     #: Sources interrogées, dans l'ordre. Doivent exister dans `sources.REGISTRY`.
     sources: list[str] = Field(default_factory=lambda: ["wttj"])
     queries: list[str]
     #: Pays, tels que nommés par la source (facette `offices.country` chez WTTJ).
     countries: list[str] = Field(default_factory=lambda: ["France"])
+    #: Centre et rayon de recherche. Absent : tout le pays.
+    location: Location | None = None
     contracts: list[str] = Field(default_factory=list)
     remote: list[str] = Field(default_factory=list)
     max_age_days: int = 30

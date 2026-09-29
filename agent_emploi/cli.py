@@ -523,17 +523,9 @@ def cmd_review(
     return 1 if report.errors else 0
 
 
-def cmd_sent(config: Config, *, ref: str, note: str | None) -> int:
-    """Enregistre une candidature que l'utilisateur a envoyée lui-même."""
-    from agent_emploi.sent import mark_submitted
-    from agent_emploi.store.jobs import JobStore
-
-    config.paths.ensure()
-    store = SeenStore(
-        config.paths.seen_file, dedup_window_days=config.filters.dedup_window_days
-    )
-    job_store = JobStore(config.paths.jobs_file)
-
+def _match_ref(job_store, ref: str):
+    """Le dossier désigné par `ref`, ou `None` (message affiché) s'il n'y en a
+    pas exactement un."""
     matches = [
         record
         for record in job_store.records()
@@ -545,15 +537,71 @@ def cmd_sent(config: Config, *, ref: str, note: str | None) -> int:
             f"{FAIL} référence {ref!r} : {len(matches)} dossier(s) correspondant(s)",
             file=sys.stderr,
         )
+        return None
+    return matches[0]
+
+
+def cmd_sent(config: Config, *, ref: str, note: str | None) -> int:
+    """Enregistre une candidature que l'utilisateur a envoyée lui-même."""
+    from agent_emploi.sent import mark_submitted
+    from agent_emploi.store.jobs import JobStore
+
+    config.paths.ensure()
+    store = SeenStore(
+        config.paths.seen_file, dedup_window_days=config.filters.dedup_window_days
+    )
+    job_store = JobStore(config.paths.jobs_file)
+
+    match = _match_ref(job_store, ref)
+    if match is None:
         return 1
-    updated = mark_submitted(matches[0].job.id, seen=store, job_store=job_store, note=note)
+    updated = mark_submitted(match.job.id, seen=store, job_store=job_store, note=note)
     if updated is None:
         print(
-            f"{FAIL} {matches[0].job.title} : dossier non approuvé, ou déjà clos",
+            f"{FAIL} {match.job.title} : dossier non approuvé, ou déjà clos",
             file=sys.stderr,
         )
         return 1
     print(f"✓ envoi enregistré — {updated.job.company} — {updated.job.title}")
+    return 0
+
+
+def cmd_interview(
+    config: Config, *, ref: str, day: str | None, note: str | None
+) -> int:
+    """Enregistre un entretien obtenu après une candidature envoyée."""
+    from datetime import datetime
+
+    from agent_emploi.sent import mark_interview
+    from agent_emploi.store.jobs import JobStore
+
+    at = None
+    if day:
+        try:
+            at = datetime.fromisoformat(day).replace(hour=12).astimezone()
+        except ValueError:
+            print(f"{FAIL} date illisible : {day!r} (attendu AAAA-MM-JJ)", file=sys.stderr)
+            return 1
+
+    config.paths.ensure()
+    store = SeenStore(
+        config.paths.seen_file, dedup_window_days=config.filters.dedup_window_days
+    )
+    job_store = JobStore(config.paths.jobs_file)
+
+    match = _match_ref(job_store, ref)
+    if match is None:
+        return 1
+    updated = mark_interview(
+        match.job.id, seen=store, job_store=job_store, at=at, note=note
+    )
+    if updated is None:
+        print(
+            f"{FAIL} {match.job.title} : candidature non déclarée envoyée",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"✓ entretien enregistré — {updated.job.company} — {updated.job.title}")
     return 0
 
 
@@ -995,6 +1043,18 @@ def main(argv: list[str] | None = None) -> int:
         "--note", default=None, help="remarque jointe à l'enregistrement de l'envoi"
     )
 
+    interview_cmd = sub.add_parser(
+        "interview",
+        help="enregistre un entretien obtenu après une candidature envoyée",
+    )
+    interview_cmd.add_argument(
+        "ref", help="dossier visé : début d'identifiant ou fragment de nom de dossier"
+    )
+    interview_cmd.add_argument(
+        "--date", dest="day", default=None, help="jour de l'entretien (AAAA-MM-JJ)"
+    )
+    interview_cmd.add_argument("--note", default=None, help="remarque libre")
+
     args = parser.parse_args(argv)
     # Les clés vivent dans `.env`, à côté de `config.yaml` qui, lui, ne contient
     # aucun secret.
@@ -1049,6 +1109,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "sent":
         return cmd_sent(config, ref=args.ref, note=args.note)
+    if args.command == "interview":
+        return cmd_interview(config, ref=args.ref, day=args.day, note=args.note)
     if args.command == "web":
         return cmd_web(config, port=args.port)
     return {"doctor": cmd_doctor, "status": cmd_status}[args.command](config)

@@ -16,6 +16,7 @@ import httpx
 import pytest
 
 from agent_emploi.sources.base import (
+    Location,
     SearchQuery,
     SourceError,
     missing_env,
@@ -353,6 +354,21 @@ class TestParams:
         assert published_since(30) == 31
         assert published_since(90) == 31
         assert published_since(None) is None
+
+    def test_location_is_sent_as_commune_and_distance(self):
+        source, recorder = fake_source()
+        location = Location(lat=48.8566, lng=2.3522, insee="75056", radius_km=25)
+        source.search(SearchQuery(text="ia", limit=1, location=location))
+        params = recorder.params("/offres/search")
+        assert params["commune"] == "75056"
+        assert params["distance"] == "25"
+
+    def test_location_without_insee_sends_no_filter(self, caplog):
+        source, recorder = fake_source()
+        location = Location(lat=48.8566, lng=2.3522)
+        source.search(SearchQuery(text="ia", limit=1, location=location))
+        assert "commune" not in recorder.params("/offres/search")
+        assert "INSEE" in caplog.text
 
     def test_published_since_is_sent(self):
         source, recorder = fake_source()

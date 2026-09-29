@@ -15,7 +15,9 @@ NOTICES = {
     "lettre": "Lettre enregistrée.",
     "approuvee": "Dossier approuvé. La candidature se prépare avec la commande ci-dessous.",
     "rejetee": "Dossier rejeté.",
+    "ma-lettre": "Lettre enregistrée et dossier préparé : relisez-le, puis approuvez.",
     "envoyee": "Envoi enregistré.",
+    "entretien": "Entretien enregistré. Bonne chance !",
     "archivee": "Candidature archivée dans applications/.",
     "suivie": "Offre ajoutée au suivi.",
 }

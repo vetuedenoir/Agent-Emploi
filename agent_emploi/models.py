@@ -30,6 +30,8 @@ class JobState(StrEnum):
     AWAITING_USER = "awaiting_user"
     APPROVED = "approved"
     SUBMITTED = "submitted"
+    #: L'utilisateur a décroché un entretien après l'envoi.
+    INTERVIEW = "interview"
     #: États hérités du remplissage automatique, retiré depuis. Ils restent
     #: lisibles pour les offres qui y sont encore, et ne mènent qu'à la fin.
     PREFILLED = "prefilled"
@@ -55,7 +57,9 @@ ALLOWED_TRANSITIONS: dict[JobState, frozenset[JobState]] = {
     JobState.AWAITING_USER: frozenset({JobState.APPROVED, JobState.REJECTED}),
     # L'utilisateur envoie lui-même, puis le déclare.
     JobState.APPROVED: frozenset({JobState.SUBMITTED, JobState.REJECTED}),
-    JobState.SUBMITTED: frozenset(),
+    # Après l'envoi, la seule nouvelle qui se déclare ici est un entretien.
+    JobState.SUBMITTED: frozenset({JobState.INTERVIEW}),
+    JobState.INTERVIEW: frozenset(),
     JobState.PREFILLED: frozenset({JobState.SUBMITTED, JobState.REJECTED}),
     JobState.HANDOFF: frozenset({JobState.SUBMITTED, JobState.REJECTED}),
     # Une offre suivie se prépare (elle rejoint alors le parcours au
@@ -209,6 +213,9 @@ class Letter(BaseModel):
     #: Vrai si l'utilisateur a corrigé `lettre.md` à la main avant d'approuver.
     #: C'est alors sa version qui est ici, et c'est elle qui est archivée.
     edited: bool = False
+    #: Vrai si l'utilisateur a écrit la lettre lui-même, sans passer par le
+    #: modèle : elle n'a alors ni relecture ni reprise.
+    authored: bool = False
 
     @property
     def word_count(self) -> int:
@@ -268,6 +275,9 @@ class JobRecord(BaseModel):
     #: Date à laquelle l'utilisateur a déclaré avoir envoyé la candidature.
     #: Le programme n'envoie rien : seule cette déclaration clôt un dossier.
     submitted_at: datetime | None = None
+    #: Date de l'entretien déclaré par l'utilisateur (ou de sa déclaration, s'il
+    #: n'a pas précisé le jour).
+    interview_at: datetime | None = None
     #: Dossier d'archive `applications/`, une fois la candidature classée. Sa
     #: présence signale que l'offre est sortie du flux courant.
     archive: str | None = None

@@ -30,7 +30,7 @@
 {% if error %}<p class="banner banner-ko" role="alert">{{ error }}</p>{% endif %}
 
 {% set tracked_without_text = d.entry and d.entry.state.value == 'tracked' and not (r and r.job.description) %}
-{% if can.decide or can.reject or can.mark_sent or can.archive or can.prepare or tracked_without_text %}
+{% if can.decide or can.reject or can.mark_sent or can.mark_interview or can.archive or can.prepare or tracked_without_text %}
 <section class="card actions">
   <h2>Actions</h2>
   {% if can.prepare %}
@@ -59,6 +59,13 @@
     <button type="submit" class="primary">J'ai envoyé la candidature</button>
   </form>
   {% endif %}
+  {% if can.mark_interview %}
+  <form method="post" action="/offres/{{ d.id }}/entretien" class="form-row">
+    <input type="date" name="day" aria-label="Date de l'entretien (facultative)" title="Date de l'entretien (facultative)">
+    <input type="text" name="note" placeholder="Remarque (facultative)" aria-label="Remarque">
+    <button type="submit" class="primary">J'ai obtenu un entretien</button>
+  </form>
+  {% endif %}
   {% if can.archive %}
   <form method="post" action="/offres/{{ d.id }}/archiver" class="form-row">
     <span class="muted small">Déplace le dossier dans <code>applications/</code>, avec une fiche de suivi.</span>
@@ -78,12 +85,28 @@
 <div class="detail-grid">
 <div class="detail-main">
 
+  {% if can.write_letter %}
+  <section class="card" id="lettre">
+    <h2>Lettre <span class="muted small">pas encore rédigée</span></h2>
+    <p class="muted small">La passe <code>draft</code> l'écrira, ou écrivez-la vous-même ici : le dossier est alors préparé tout de suite, sans appel au modèle{% if r.fit.language %}, en {{ 'anglais' if r.fit.language == 'en' else 'français' }} (langue de l'annonce){% endif %}.</p>
+    <form method="post" action="/offres/{{ d.id }}/ma-lettre" class="letter-form">
+      <textarea name="text" rows="18" data-wordcount="#letter-words" required>{{ draft or '' }}</textarea>
+      <div class="form-row">
+        <span id="letter-words" class="muted small" data-min="{{ letter_bounds[0] }}" data-max="{{ letter_bounds[1] }}">
+          {{ (draft or '').split() | length }} mots (attendu {{ letter_bounds[0] }}–{{ letter_bounds[1] }})
+        </span>
+        <button type="submit" class="primary">Enregistrer ma lettre</button>
+      </div>
+    </form>
+  </section>
+  {% endif %}
+
   {% if d.letter %}
   <section class="card" id="lettre">
     <h2>Lettre
       <span class="muted small">
         {% if d.letter_origin == 'outbox' %}lue depuis <code>lettre.md</code>{% else %}version enregistrée dans <code>jobs.jsonl</code>{% endif %}
-        {% if r.letter and r.letter.edited %} · corrigée à la main{% endif %}
+        {% if r.letter and r.letter.authored %} · écrite à la main{% elif r.letter and r.letter.edited %} · corrigée à la main{% endif %}
         {% if r.letter and r.letter.cv %} · écrite d'après le CV {{ CV_LABELS.get(r.letter.cv, r.letter.cv) }}{% endif %}
       </span>
     </h2>
@@ -164,6 +187,13 @@
   <section class="card">
     <h2>Candidature <span class="verdict ok">envoyée</span></h2>
     <p class="muted small">{{ r.submitted_at | local_time }}</p>
+  </section>
+  {% endif %}
+
+  {% if r and r.interview_at %}
+  <section class="card">
+    <h2>Entretien <span class="verdict ok">obtenu</span></h2>
+    <p class="muted small">{{ r.interview_at | local_time('%d/%m/%Y') }}</p>
   </section>
   {% endif %}
 

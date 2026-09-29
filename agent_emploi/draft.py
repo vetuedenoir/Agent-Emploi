@@ -34,7 +34,7 @@ from agent_emploi.llm.budget import BudgetExceeded
 from agent_emploi.llm.router import LlmError
 from agent_emploi.models import JobRecord, JobState, Letter, ReviewVerdict
 from agent_emploi.outbox import bundle_path, write_bundle
-from agent_emploi.profile import Profile
+from agent_emploi.profile import BannedPhrases, Profile
 from agent_emploi.store.jobs import JobStore
 from agent_emploi.store.seen import SeenStore
 
@@ -289,3 +289,51 @@ def run_draft(
         )
 
     return report
+
+
+def deliver_own_letter(
+    config: Config,
+    record: JobRecord,
+    text: str,
+    *,
+    seen: SeenStore,
+    job_store: JobStore,
+) -> DraftedApplication:
+    """Livre une lettre écrite par l'utilisateur, à la place de la rédaction.
+
+    Même aboutissement que `run_draft` — dossier `outbox/` et `awaiting_user` —
+    sans appel LLM : ni rédaction, ni relecture. La lettre passe tout de même
+    par le contrôle des formules interdites et de la longueur, dont les
+    réserves s'affichent avant la décision comme pour une lettre du modèle.
+
+    La langue et la variante de CV viennent du fit-check : c'est lui qui a lu
+    l'annonce. Lève `ValueError` si l'offre n'a pas de verdict, `OSError` si le
+    dossier ne peut pas être écrit (l'offre reste alors en `reviewed`, avec sa
+    lettre, et `draft` reprendra à l'écriture du dossier).
+    """
+    if record.fit is None:
+        raise ValueError(f"offre {record.job.id}: aucun verdict d'adéquation")
+    job, fit = record.job, record.fit
+    banned = BannedPhrases.load(config.profile.banned_phrases)
+    letter = Letter(
+        text=text,
+        language=fit.language,
+        cv=fit.cv,
+        banned_hits=banned.find(text),
+        authored=True,
+    )
+
+    saved = job_store.save(job, letter=letter)
+    seen.advance(job.id, JobState.DRAFTED, f"lettre:manuelle({letter.word_count} mots)")
+    seen.advance(job.id, JobState.REVIEWED, "revue:manuelle")
+
+    cv_path = config.profile.cv_en if letter.language == "en" else config.profile.cv_fr
+    cv_pdf = cv_path if cv_path.exists() else None
+    directory = write_bundle(config.paths.outbox, saved, cv_pdf)
+
+    saved = job_store.save(job, outbox=str(directory))
+    seen.advance(job.id, JobState.AWAITING_USER, f"dossier:{directory.name}")
+    warnings = [] if cv_pdf else [
+        f"aucun CV à joindre pour la langue « {letter.language} »"
+    ]
+    return DraftedApplication(record=saved, directory=directory, warnings=warnings)

@@ -34,6 +34,15 @@ search:
     - "data scientist"
     - "stage machine learning"
   countries: ["France"]
+  # Zone de recherche : centre et rayon en km. `insee` est le code commune
+  # (lu par France Travail, qui ignore les coordonnées). Retirer le bloc pour
+  # chercher dans tout le pays.
+  location:
+    label: Paris
+    lat: 48.8566
+    lng: 2.3522
+    insee: "75056"
+    radius_km: 30
   # Contrats recherchés : CDI, CDD, stage, alternance, freelance.
   contracts: ["stage", "alternance"]
   # Télétravail : full, partial, punctual, no. Vide = pas de filtre.
