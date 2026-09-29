@@ -1,6 +1,14 @@
 import pytest
 
-from agent_emploi.profile import BannedPhrases, Profile, fold, strip_data_uris
+from agent_emploi.config import CvVariant, ProfileConfig
+from agent_emploi.profile import (
+    BannedPhrases,
+    CvText,
+    Profile,
+    fold,
+    load_cvs,
+    strip_data_uris,
+)
 
 
 class TestFold:
@@ -160,3 +168,57 @@ class TestProfileLoad:
     def test_missing_cv_pdf_returns_none(self, profile_dir):
         config, _ = profile_dir
         assert Profile.load(config).cv_pdf("en") is None
+
+
+class TestVariants:
+    @pytest.fixture
+    def variants_config(self, tmp_path, config):
+        directory = tmp_path / "profile"
+        directory.mkdir()
+        for name, text in (("dev.md", "Backend Python."), ("ml.md", "Keras, vision.")):
+            (directory / name).write_text(text, encoding="utf-8")
+        config.profile.variants = [
+            CvVariant(id="dev", label="Développeur", markdown=directory / "dev.md"),
+            CvVariant(id="ml", label="Machine learning", markdown=directory / "ml.md"),
+        ]
+        config.profile.cv_markdown = None
+        config.profile.voice = directory / "voice.md"
+        config.profile.banned_phrases = directory / "banned.txt"
+        return config
+
+    def test_single_cv_mode_has_no_identifier(self, config, tmp_path):
+        config.profile.cv_markdown = tmp_path / "cv.md"
+        config.profile.cv_markdown.write_text("Python.", encoding="utf-8")
+        assert load_cvs(config) == [CvText(None, None, "Python.")]
+
+    def test_loads_every_variant(self, variants_config):
+        cvs = load_cvs(variants_config)
+        assert [(cv.id, cv.text) for cv in cvs] == [
+            ("dev", "Backend Python."),
+            ("ml", "Keras, vision."),
+        ]
+
+    def test_missing_variant_file_fails(self, variants_config):
+        variants_config.profile.variants[1].markdown.unlink()
+        with pytest.raises(FileNotFoundError):
+            load_cvs(variants_config)
+
+    def test_for_cv_switches_the_cv_text(self, variants_config):
+        profile = Profile.load(variants_config)
+        assert profile.cv_text == "Backend Python."
+        assert profile.for_cv("ml").cv_text == "Keras, vision."
+        assert profile.for_cv(None).cv_text == "Backend Python."
+        assert profile.for_cv("retirée").cv_text == "Backend Python."
+        assert profile.label("ml") == "Machine learning"
+
+    def test_config_requires_a_cv(self):
+        with pytest.raises(ValueError):
+            ProfileConfig(cv_fr="a", cv_en="b", voice="c", banned_phrases="d")
+
+    def test_config_rejects_duplicate_ids(self):
+        variant = {"id": "dev", "label": "Dev", "markdown": "dev.md"}
+        with pytest.raises(ValueError):
+            ProfileConfig(
+                cv_fr="a", cv_en="b", voice="c", banned_phrases="d",
+                variants=[variant, variant],
+            )

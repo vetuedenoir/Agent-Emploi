@@ -103,7 +103,7 @@ def screen(wired, jobs, agent=None, source=None, **kwargs):
         seen=seen,
         job_store=job_store,
         fit_agent=agent or FakeAgent([]),
-        cv_text=CV,
+        cvs=CV,
         sources={"fake": source or FakeSource()},
         **kwargs,
     )
@@ -209,7 +209,7 @@ class TestFailures:
             seen=wired[1],
             job_store=wired[2],
             fit_agent=FakeAgent([]),
-            cv_text=CV,
+            cvs=CV,
             sources={"fake": FakeSource(error=RuntimeError("502"))},
         )
         assert report.errors and report.accepted == []
@@ -261,7 +261,7 @@ class TestFailures:
             seen=seen,
             job_store=job_store,
             fit_agent=FakeAgent([]),
-            cv_text=CV,
+            cvs=CV,
             sources={},
         )
         assert report.errors == ["source inconnue: fake"]

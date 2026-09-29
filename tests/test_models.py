@@ -145,3 +145,16 @@ class TestLegacyApplication:
             }
         )
         assert record.submitted_at is None
+
+
+def test_records_without_cv_variant_still_load():
+    """Les verdicts et lettres écrits avant les variantes de CV se relisent."""
+    record = JobRecord.model_validate(
+        {
+            "job": make_job().model_dump(mode="json"),
+            "fit": {"score": 70, "verdict": "apply", "reason": "ok", "language": "fr"},
+            "letter": {"text": "Madame, Monsieur.", "language": "fr"},
+        }
+    )
+    assert record.fit.cv is None
+    assert record.letter.cv is None

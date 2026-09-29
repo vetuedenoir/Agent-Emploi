@@ -69,6 +69,13 @@ class OfferRow:
         return self.record.fit.score
 
     @property
+    def cv(self) -> str | None:
+        """Variante de CV retenue par le fit-check, en mode multi-CV."""
+        if self.record is None or self.record.fit is None:
+            return None
+        return self.record.fit.cv
+
+    @property
     def location(self) -> str | None:
         return self.record.job.location if self.record else None
 
@@ -86,10 +93,14 @@ class OfferFilters:
     source: str = ""
     days: int | None = None
     sort: str = "date"
+    #: Variante de CV ; vide pour toutes.
+    cv: str = ""
 
     def matches(self, row: OfferRow, now: datetime) -> bool:
         entry = row.entry
         if self.state and entry.state.value != self.state:
+            return False
+        if self.cv and row.cv != self.cv:
             return False
         if self.source and entry.source != self.source:
             return False

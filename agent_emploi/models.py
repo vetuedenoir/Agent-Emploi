@@ -173,6 +173,8 @@ class FitVerdict(BaseModel):
     gaps: list[str] = Field(default_factory=list)
     reason: str
     language: Literal["fr", "en"]
+    #: Variante de CV retenue pour l'offre ; absente en mode à un seul CV.
+    cv: str | None = None
 
 
 class GateVerdict(BaseModel):
@@ -199,6 +201,8 @@ class Letter(BaseModel):
 
     text: str
     language: Literal["fr", "en"]
+    #: Variante de CV sur laquelle la lettre s'appuie (celle du fit-check).
+    cv: str | None = None
     #: Formules interdites détectées après génération (voir banned_phrases.txt).
     banned_hits: list[str] = Field(default_factory=list)
     regenerated: bool = False

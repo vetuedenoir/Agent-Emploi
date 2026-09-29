@@ -188,3 +188,17 @@ class TestFromConfig:
         config.search.contracts = ["stage"]
         gate = GateAgent.from_config(config, "CV", budget, force=True)
         assert gate is not None and gate.contracts == ["stage"]
+
+
+def test_gate_shows_jev_the_closest_variant(budget):
+    client = FakeClient(answers())
+    gate = GateAgent(
+        client,
+        budget,
+        ["Backend Django, API REST.", "Keras, vision par ordinateur, deep learning."],
+        GateConfig(enabled=True),
+        contracts=[],
+        pricing=Pricing(),
+    )
+    gate.evaluate(make_job("Stage deep learning en vision par ordinateur avec Keras."))
+    assert client.calls[0]["state"]["cv"].startswith("Keras")

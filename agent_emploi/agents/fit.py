@@ -14,10 +14,14 @@ sont donc chiffrées et la sortie contrainte par un schéma.
 from __future__ import annotations
 
 import logging
+from typing import Literal
+
+from pydantic import create_model
 
 from agent_emploi.config import FitConfig
 from agent_emploi.llm.router import Router
 from agent_emploi.models import FitVerdict, Job
+from agent_emploi.profile import CvText
 
 logger = logging.getLogger(__name__)
 
@@ -62,20 +66,36 @@ Contraintes :
 """
 
 
-def build_prompt(job: Job, cv_text: str) -> str:
+VARIANTES = """\
+Choix du CV :
+- Le candidat dispose de plusieurs variantes de son CV, d'une même base mais
+  orientées vers des postes différents.
+- `cv` : l'identifiant de la variante la plus adaptée à cette offre.
+- `score`, `verdict`, `matched` et `gaps` se rapportent à cette variante seule.\
+"""
+
+
+def build_prompt(job: Job, cv_text: str | list[CvText]) -> str:
     """Assemble le prompt : CV d'abord, annonce ensuite, barème en dernier.
 
     Le CV est placé en tête parce qu'il est identique d'une offre à l'autre :
-    c'est le préfixe que le cache de prompt peut réutiliser.
+    c'est le préfixe que le cache de prompt peut réutiliser. Avec plusieurs
+    variantes, chacune a son bloc, et le barème demande de choisir.
     """
     description = job.description[:MAX_DESCRIPTION_CHARS]
     if len(job.description) > MAX_DESCRIPTION_CHARS:
         description += "\n[…description tronquée]"
 
-    lines = [
-        "# CV du candidat",
-        cv_text.strip(),
-        "",
+    if isinstance(cv_text, str):
+        lines = ["# CV du candidat", cv_text.strip(), ""]
+        bareme = BAREME
+    else:
+        lines = []
+        for cv in cv_text:
+            lines += [f"# CV « {cv.id} » — {cv.label}", cv.text.strip(), ""]
+        bareme = BAREME + "\n\n" + VARIANTES
+
+    lines += [
         "# Offre",
         f"Intitulé : {job.title}",
         f"Entreprise : {job.company}",
@@ -88,17 +108,31 @@ def build_prompt(job: Job, cv_text: str) -> str:
     ):
         if value:
             lines.append(f"{label} : {value}")
-    lines += ["", "Description :", description, "", BAREME]
+    lines += ["", "Description :", description, "", bareme]
     return "\n".join(lines)
 
 
 class FitAgent:
     """Évalue une offre et tranche selon les seuils de `config.fit`."""
 
-    def __init__(self, router: Router, cv_text: str, config: FitConfig) -> None:
+    def __init__(
+        self, router: Router, cv_text: str | list[CvText], config: FitConfig
+    ) -> None:
         self.router = router
-        self.cv_text = cv_text
         self.config = config
+        # Une seule entrée sans identifiant : c'est le mode à un seul CV, dont
+        # le prompt et le schéma restent ceux d'avant les variantes.
+        if not isinstance(cv_text, str) and len(cv_text) == 1 and cv_text[0].id is None:
+            cv_text = cv_text[0].text
+        self.cv_text = cv_text
+        self.schema = FitVerdict
+        if not isinstance(cv_text, str):
+            ids = tuple(cv.id for cv in cv_text)
+            # Le schéma n'accepte que les variantes déclarées : un identifiant
+            # inventé échoue à la validation et déclenche la relance du routeur.
+            self.schema = create_model(
+                "FitVerdictCv", __base__=FitVerdict, cv=(Literal[ids], ...)
+            )
 
     def evaluate(self, job: Job) -> FitVerdict:
         """Un appel LLM, sortie validée. Propage `LlmError` et `BudgetExceeded`.
@@ -110,15 +144,18 @@ class FitAgent:
         verdict = self.router.structured(
             TASK,
             build_prompt(job, self.cv_text),
-            FitVerdict,
+            self.schema,
             system=SYSTEM,
             job_id=job.id,
         )
+        if type(verdict) is not FitVerdict:
+            verdict = FitVerdict.model_validate(verdict.model_dump())
         logger.info(
-            "fit %s — %s (%d) : %s",
+            "fit %s — %s (%d%s) : %s",
             job.title,
             verdict.verdict,
             verdict.score,
+            f", CV {verdict.cv}" if verdict.cv else "",
             verdict.reason,
         )
         return verdict

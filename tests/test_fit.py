@@ -7,6 +7,7 @@ from agent_emploi.config import FitConfig
 from agent_emploi.llm.providers.base import Completion
 from agent_emploi.llm.router import Router
 from agent_emploi.models import FitVerdict, Job
+from agent_emploi.profile import CvText
 
 CV = "Python, Tensorflow, LLM, RAG. École 42."
 
@@ -123,3 +124,44 @@ class TestDecision:
     def test_accept_verdicts_are_configurable(self):
         agent = FitAgent(None, CV, FitConfig(min_score=50, accept_verdicts=["apply", "maybe"]))
         assert agent.accepts(FitVerdict.model_validate({**VERDICT, "verdict": "maybe"}))
+
+
+class TestVariants:
+    """Plusieurs CV : un seul appel, qui choisit la variante et note contre elle."""
+
+    CVS = [
+        CvText("dev", "Développeur logiciel", "Python, C++, backend, API REST."),
+        CvText("llm", "Agents LLM", "LLM, RAG, MCP, agents."),
+    ]
+
+    def test_prompt_lists_every_variant_and_asks_to_choose(self):
+        prompt = build_prompt(make_job(), self.CVS)
+        assert "# CV « dev » — Développeur logiciel" in prompt
+        assert "# CV « llm » — Agents LLM" in prompt
+        assert "Choix du CV" in prompt
+        assert prompt.index("API REST") < prompt.index("# Offre")
+
+    def test_single_cv_prompt_is_unchanged(self):
+        assert "Choix du CV" not in build_prompt(make_job(), CV)
+        agent = FitAgent(None, [CvText(None, None, CV)], FitConfig())
+        assert agent.cv_text == CV
+        assert agent.schema is FitVerdict
+
+    def test_verdict_carries_the_chosen_variant(self, config, monkeypatch):
+        monkeypatch.setenv("GROQ_API_KEY", "x")
+        router = Router(config)
+        router._providers["groq"] = ScriptedProvider([json.dumps({**VERDICT, "cv": "llm"})])
+        verdict = FitAgent(router, self.CVS, FitConfig()).evaluate(make_job())
+        assert type(verdict) is FitVerdict
+        assert verdict.cv == "llm"
+
+    def test_unknown_variant_triggers_a_retry(self, config, monkeypatch):
+        monkeypatch.setenv("GROQ_API_KEY", "x")
+        router = Router(config)
+        provider = ScriptedProvider(
+            [json.dumps({**VERDICT, "cv": "inventé"}), json.dumps({**VERDICT, "cv": "dev"})]
+        )
+        router._providers["groq"] = provider
+        verdict = FitAgent(router, self.CVS, FitConfig()).evaluate(make_job())
+        assert verdict.cv == "dev"
+        assert len(provider.calls) == 2

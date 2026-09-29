@@ -20,6 +20,14 @@
     <option value="{{ source }}" {% if filters.source == source %}selected{% endif %}>{{ source }}</option>
     {% endfor %}
   </select>
+  {% if CV_LABELS %}
+  <select name="cv" aria-label="CV">
+    <option value="">Tous les CV</option>
+    {% for cv_id, label in CV_LABELS.items() %}
+    <option value="{{ cv_id }}" {% if filters.cv == cv_id %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
   <select name="days" aria-label="Période">
     <option value="">Depuis toujours</option>
     {% for days in periods %}

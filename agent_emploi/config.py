@@ -12,17 +12,49 @@ import os
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 DEFAULT_CONFIG_PATH = Path("config.yaml")
 
 
+class CvVariant(BaseModel):
+    """Une déclinaison du CV, orientée vers une famille de postes."""
+
+    #: Identifiant court et stable, persisté avec chaque verdict (`dev`, `ml`…).
+    id: str
+    #: Nom affiché dans l'interface et les dossiers.
+    label: str
+    markdown: Path
+
+
 class ProfileConfig(BaseModel):
-    cv_markdown: Path
+    #: CV texte unique. Ignoré dès que des variantes sont déclarées.
+    cv_markdown: Path | None = None
     cv_fr: Path
     cv_en: Path
     voice: Path
     banned_phrases: Path
+    #: Plusieurs CV d'une même base : l'offre est retenue si elle convient à
+    #: l'un d'eux, et rangée sous celui qui lui convient le mieux. Liste vide :
+    #: mode à un seul CV, `cv_markdown`.
+    variants: list[CvVariant] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _one_cv_at_least(self) -> ProfileConfig:
+        if not self.variants and self.cv_markdown is None:
+            raise ValueError("profile: renseigner cv_markdown ou au moins une variante")
+        ids = [variant.id for variant in self.variants]
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"profile.variants: identifiants en double ({', '.join(ids)})")
+        return self
+
+    @property
+    def multi_cv(self) -> bool:
+        return bool(self.variants)
+
+    def cv_labels(self) -> dict[str, str]:
+        """Identifiant → nom affiché, vide en mode à un seul CV."""
+        return {variant.id: variant.label for variant in self.variants}
 
 
 class PathsConfig(BaseModel):

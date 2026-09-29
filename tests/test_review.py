@@ -1,10 +1,12 @@
 import json
+from dataclasses import replace
 
 import pytest
 
 from agent_emploi.agents.review import MAX_DESCRIPTION_CHARS, ReviewAgent, build_prompt
 from agent_emploi.llm.router import Router
 from agent_emploi.models import Job, Letter, ReviewVerdict
+from agent_emploi.profile import CvText
 from tests.conftest import ScriptedProvider
 
 APPROVED = {"approved": True, "issues": [], "unsupported_claims": []}
@@ -82,3 +84,17 @@ class TestFeedback:
     def test_stays_usable_when_the_review_gave_no_detail(self):
         feedback = ReviewAgent.feedback(ReviewVerdict(approved=False))
         assert "refusée" in feedback
+
+
+def test_review_reads_the_cv_the_letter_was_written_from(config, profile, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    profile = replace(
+        profile,
+        cvs=(CvText("dev", "Dev", "Backend Django."), CvText("ml", "ML", "Keras, vision.")),
+    )
+    router = Router(config)
+    provider = ScriptedProvider([json.dumps(APPROVED)])
+    router._providers["gemini"] = provider
+    letter = Letter(text="Madame, Monsieur.", language="fr", cv="ml")
+    ReviewAgent(router, profile).review(make_job(), letter)
+    assert "Keras, vision." in provider.calls[0]["prompt"]

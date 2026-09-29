@@ -11,6 +11,7 @@ from agent_emploi.agents.letter import (
 from agent_emploi.config import LetterConfig
 from agent_emploi.llm.router import Router
 from agent_emploi.models import FitVerdict, Job, Letter
+from agent_emploi.profile import CvText
 from tests.conftest import ScriptedProvider
 
 FIT = FitVerdict(
@@ -158,3 +159,17 @@ class TestDefects:
             self.letter(LETTRE, banned_hits=["passionné par"])
         )
         assert "passionné par" in defects[0]
+
+
+class TestVariants:
+    def test_letter_is_written_from_the_chosen_cv(self, config, profile, monkeypatch):
+        profile = replace(
+            profile,
+            cvs=(CvText("dev", "Dev", "Backend Django."), CvText("ml", "ML", "Keras, vision.")),
+        )
+        agent = make_agent(config, profile, [LETTRE], monkeypatch)
+        letter = agent.write(make_job(), FIT.model_copy(update={"cv": "ml"}))
+        system = agent.router._providers["anthropic"].calls[0]["system"]
+        assert "Keras, vision." in system
+        assert "Backend Django." not in system
+        assert letter.cv == "ml"

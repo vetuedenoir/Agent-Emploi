@@ -23,6 +23,7 @@ import logging
 import os
 
 from agent_emploi.config import Config, GateConfig, Pricing
+from agent_emploi.filters import LexicalScorer
 from agent_emploi.llm.budget import BudgetTracker, estimate_cost
 from agent_emploi.llm.jev import (
     MAX_STATE_CHARS,
@@ -158,7 +159,7 @@ class GateAgent:
         self,
         client: JevClient,
         budget: BudgetTracker,
-        cv_text: str,
+        cv_text: str | list[str],
         config: GateConfig,
         *,
         contracts: list[str],
@@ -169,19 +170,30 @@ class GateAgent:
         self.config = config
         self.contracts = contracts
         self.pricing = pricing
-        if len(cv_text) > MAX_CV_CHARS:
-            logger.warning(
-                "CV de %d caractères tronqué à %d pour la porte Jev",
-                len(cv_text),
-                MAX_CV_CHARS,
-            )
-        self.cv_text = cv_text
+        self.cv_texts = [cv_text] if isinstance(cv_text, str) else list(cv_text)
+        for text in self.cv_texts:
+            if len(text) > MAX_CV_CHARS:
+                logger.warning(
+                    "CV de %d caractères tronqué à %d pour la porte Jev",
+                    len(text),
+                    MAX_CV_CHARS,
+                )
+        #: Avec plusieurs variantes, la porte juge avec la plus proche de
+        #: l'offre au sens lexical : elle écarte l'inaccessible, le choix fin
+        #: de la variante revient au fit-check.
+        self._scorer = LexicalScorer(self.cv_texts) if len(self.cv_texts) > 1 else None
+
+    def cv_for(self, job: Job) -> str:
+        """Le CV présenté à Jev pour cette offre."""
+        if self._scorer is None:
+            return self.cv_texts[0]
+        return self.cv_texts[self._scorer.best(f"{job.title}\n{job.description}")]
 
     @classmethod
     def from_config(
         cls,
         config: Config,
-        cv_text: str,
+        cv_text: str | list[str],
         budget: BudgetTracker,
         *,
         force: bool = False,
@@ -216,7 +228,7 @@ class GateAgent:
         concerne que cette offre.
         """
         self.budget.check()
-        state = build_state(job, self.cv_text)
+        state = build_state(job, self.cv_for(job))
         # Même offre, même état : même clé. Une reprise après une coupure n'est
         # pas facturée deux fois ; un CV modifié, lui, donne une nouvelle clé.
         digest = hashlib.sha256(repr(state).encode()).hexdigest()[:12]

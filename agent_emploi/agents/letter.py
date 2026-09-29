@@ -189,6 +189,15 @@ class LetterAgent:
         self.profile = profile
         self.config = config
         self.system = _system_prompt(profile, config)
+        #: Un prompt système par variante de CV, chacun stable d'une offre à
+        #: l'autre : le cache de l'API joue toujours, variante par variante.
+        self._systems: dict[str | None, str] = {None: self.system}
+
+    def system_for(self, cv_id: str | None) -> str:
+        """Le bloc stable du prompt, bâti sur la variante de CV retenue."""
+        if cv_id not in self._systems:
+            self._systems[cv_id] = _system_prompt(self.profile.for_cv(cv_id), self.config)
+        return self._systems[cv_id]
 
     def write(
         self, job: Job, fit: FitVerdict, *, feedback: str | None = None
@@ -202,7 +211,7 @@ class LetterAgent:
             self.router.complete(
                 TASK,
                 build_prompt(job, fit, feedback),
-                system=self.system,
+                system=self.system_for(fit.cv),
                 max_tokens=MAX_TOKENS,
                 job_id=job.id,
             )
@@ -210,6 +219,7 @@ class LetterAgent:
         letter = Letter(
             text=text,
             language=fit.language,
+            cv=fit.cv,
             banned_hits=self.profile.banned.find(text),
             regenerated=feedback is not None,
         )

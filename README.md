@@ -60,6 +60,11 @@ Cette commande indique ce qui manque encore.
 - **`profile/`** : votre CV (en texte et en PDF), des exemples de votre
   écriture et les formules à bannir. Le fichier `voice.md` compte beaucoup :
   sans exemples de votre écriture, les lettres sonneront génériques.
+- **Plusieurs CV** : si vous visez des postes variés, déclarez plusieurs
+  versions de votre CV sous `profile.variants` dans `config.yaml`. Une offre
+  est gardée dès qu'elle convient à l'une d'elles, rangée sous la plus adaptée,
+  et la lettre s'appuie sur celle-ci. L'interface indique pour chaque offre la
+  version retenue et permet de filtrer par CV.
 
 Vos fichiers personnels (`.env`, `config.yaml`, `profile/`) et les données
 produites par l'assistant restent sur votre machine et ne sont jamais

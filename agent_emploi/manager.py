@@ -32,7 +32,7 @@ from agent_emploi.agents.review import ReviewAgent
 from agent_emploi.config import Config
 from agent_emploi.draft import DraftReport, run_draft
 from agent_emploi.models import JobRecord
-from agent_emploi.profile import Profile
+from agent_emploi.profile import CvText, Profile
 from agent_emploi.review_cli import Pending, pending
 from agent_emploi.screen import ScreenReport, run_screen
 from agent_emploi.search import SearchReport, run_search
@@ -79,7 +79,7 @@ def run_pipeline(
     seen: SeenStore,
     job_store: JobStore,
     profile: Profile,
-    cv_text: str,
+    cvs: str | list[CvText],
     fit_agent: FitAgent,
     letter_agent: LetterAgent,
     review_agent: ReviewAgent,
@@ -112,7 +112,7 @@ def run_pipeline(
             seen=seen,
             job_store=job_store,
             fit_agent=fit_agent,
-            cv_text=cv_text,
+            cvs=cvs,
             sources=sources,
             record=record,
             gate=gate,

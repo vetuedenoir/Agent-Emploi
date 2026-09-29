@@ -7,6 +7,17 @@ profile:
   cv_en: profile/cv_en.pdf
   voice: profile/voice.md
   banned_phrases: profile/banned_phrases.txt
+  # Facultatif : plusieurs versions du CV, pour viser des postes plus variés.
+  # Une offre est retenue si elle convient à l'une d'elles ; le tri choisit la
+  # plus adaptée, la lettre s'appuie dessus et l'interface l'affiche. Avec ce
+  # bloc, `cv_markdown` n'est plus lu ; sans lui, un seul CV est utilisé.
+  # variants:
+  #   - id: dev
+  #     label: Développeur logiciel
+  #     markdown: profile/cv_dev.md
+  #   - id: ml
+  #     label: Machine learning
+  #     markdown: profile/cv_ml.md
 
 paths:
   data: data

@@ -158,7 +158,7 @@ def pipeline(wired, profile, **kwargs):
         seen=seen,
         job_store=job_store,
         profile=profile,
-        cv_text=CV,
+        cvs=CV,
         sources={"fake": FakeSource()},
         **kwargs,
     )

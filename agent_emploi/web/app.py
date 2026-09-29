@@ -72,9 +72,9 @@ def default_fit_agent(config: Config) -> Callable[[], FitAgent]:
 
     def build() -> FitAgent:
         from agent_emploi.llm.router import Router
-        from agent_emploi.screen import load_cv_text
+        from agent_emploi.profile import load_cvs
 
-        return FitAgent(Router(config), load_cv_text(config), config.fit)
+        return FitAgent(Router(config), load_cvs(config), config.fit)
 
     return build
 
@@ -91,6 +91,9 @@ def create_app(
     app.state.stores = Stores(config)
     app.state.runner = runner or PassRunner(config, write_lock=app.state.stores.write_lock)
     app.state.templates = build_templates()
+    # Identifiant → nom des variantes de CV ; vide en mode à un seul CV, ce qui
+    # masque colonne, filtre et mentions dans les pages.
+    app.state.templates.env.globals["CV_LABELS"] = config.profile.cv_labels()
     # Le bandeau « passe en cours » de chaque page.
     app.state.templates.env.globals["runner"] = app.state.runner
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(LOCAL_HOSTS))

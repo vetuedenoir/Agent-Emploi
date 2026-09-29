@@ -187,3 +187,52 @@ class TestDetail:
         text = client.get(f"/offres/{populated['pending'].id}").text
         timeline = text[text.index('class="timeline"') :]
         assert timeline.count("<li>") == 6
+
+
+class TestCvVariants:
+    @pytest.fixture
+    def multi_client(self, config):
+        from agent_emploi.config import CvVariant
+
+        config.profile.variants = [
+            CvVariant(id="dev", label="Développeur logiciel", markdown="dev.md"),
+            CvVariant(id="ml", label="Machine learning", markdown="ml.md"),
+        ]
+        return TestClient(create_app(config), base_url="http://127.0.0.1")
+
+    @pytest.fixture
+    def classified(self, stores):
+        seen, jobs = stores
+        for slug, company, cv in (("d", "Backendco", "dev"), ("m", "Visionco", "ml")):
+            job = make_job(slug, company=company)
+            seen.record(job)
+            seen.transition(job.id, JobState.PRESCREENED)
+            seen.transition(job.id, JobState.FIT_OK)
+            jobs.save(job, fit=fit(80).model_copy(update={"cv": cv}))
+        return seen, jobs
+
+    def test_single_cv_mode_shows_no_cv_column(self, client, classified):
+        text = client.get("/offres").text
+        assert "<th>CV</th>" not in text
+        assert "Tous les CV" not in text
+
+    def test_offers_show_their_variant(self, multi_client, classified):
+        text = multi_client.get("/offres").text
+        assert "<th>CV</th>" in text
+        assert "Développeur logiciel" in text
+        assert "Machine learning" in text
+
+    def test_filter_by_variant(self, multi_client, classified):
+        text = multi_client.get("/offres", params={"cv": "ml"}).text
+        assert "Visionco" in text
+        assert "Backendco" not in text
+
+    def test_unknown_variant_filter_is_ignored(self, multi_client, classified):
+        text = multi_client.get("/offres", params={"cv": "zz"}).text
+        assert "Visionco" in text and "Backendco" in text
+
+    def test_detail_names_the_variant(self, multi_client, classified):
+        seen, _ = classified
+        job_id = next(e.id for e in seen.entries() if e.company == "Visionco")
+        text = multi_client.get(f"/offres/{job_id}").text
+        assert "CV Machine learning" in text

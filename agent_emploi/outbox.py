@@ -198,7 +198,7 @@ def _preview_html(record: JobRecord, cv_name: str | None) -> str:
 {"".join(f'<p class="alert">{alert}</p>' for alert in alerts)}
 <h2>Lettre — {letter.word_count} mots ({esc(letter.language)})</h2>
 <div class="letter">{esc(letter.text)}</div>
-<h2>Adéquation{f" — {fit.score}/100" if fit else ""}</h2>
+<h2>Adéquation{f" — {fit.score}/100" if fit else ""}{f" · CV « {esc(fit.cv)} »" if fit and fit.cv else ""}</h2>
 <p>{esc(fit.reason) if fit else "non évaluée"}</p>
 {section("Atouts", fit.matched) if fit else ""}
 {section("Manques", fit.gaps) if fit else ""}

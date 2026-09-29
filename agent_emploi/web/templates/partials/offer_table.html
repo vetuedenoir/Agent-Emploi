@@ -6,6 +6,7 @@
       <th>Offre</th>
       <th>État</th>
       <th class="num">Score</th>
+      {% if CV_LABELS %}<th>CV</th>{% endif %}
       {% if not compact %}<th>Motif</th><th>Source</th>{% endif %}
       <th>Dernier changement</th>
     </tr>
@@ -19,6 +20,7 @@
       </td>
       <td>{% with state=row.entry.state %}{% include "partials/state.html" %}{% endwith %}</td>
       <td class="num">{{ row.score if row.score is not none else '—' }}</td>
+      {% if CV_LABELS %}<td>{% if row.cv %}<span class="cv-badge" title="{{ CV_LABELS.get(row.cv, row.cv) }}">{{ CV_LABELS.get(row.cv, row.cv) }}</span>{% else %}—{% endif %}</td>{% endif %}
       {% if not compact %}
       <td class="reason">{{ row.entry.reason or '' }}</td>
       <td>{{ row.entry.source }}</td>

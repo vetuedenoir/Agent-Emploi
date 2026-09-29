@@ -30,7 +30,7 @@ from agent_emploi.filters import LexicalScorer, screen_content, screen_metadata
 from agent_emploi.llm.budget import BudgetExceeded
 from agent_emploi.llm.router import LlmError
 from agent_emploi.models import FitVerdict, GateVerdict, Job, JobState
-from agent_emploi.profile import load_cv
+from agent_emploi.profile import CvText, load_cv
 from agent_emploi.sources import REGISTRY, JobSource
 from agent_emploi.store.jobs import JobStore
 from agent_emploi.store.seen import SeenStore
@@ -69,8 +69,11 @@ class ScreenReport:
 
 
 def load_cv_text(config: Config) -> str:
-    """Lit le CV texte, seule entrée du scoring lexical et des prompts."""
-    path = config.profile.cv_markdown
+    """Lit le CV texte unique (la première variante s'il y en a plusieurs)."""
+    if config.profile.variants:
+        path = config.profile.variants[0].markdown
+    else:
+        path = config.profile.cv_markdown
     if not path.exists():
         raise FileNotFoundError(
             f"CV texte introuvable: {path} — requis pour le filtrage lexical"
@@ -85,7 +88,7 @@ def run_screen(
     seen: SeenStore,
     job_store: JobStore,
     fit_agent: FitAgent,
-    cv_text: str,
+    cvs: str | list[CvText],
     sources: Mapping[str, JobSource] | None = None,
     record: bool = True,
     gate: GateAgent | None = None,
@@ -97,7 +100,9 @@ def run_screen(
     et refermées à la fin.
     """
     report = ScreenReport(examined=len(jobs))
-    scorer = LexicalScorer(cv_text)
+    # Plusieurs variantes : le score lexical est celui de la plus proche, une
+    # offre n'a qu'à ressembler à l'une d'elles.
+    scorer = LexicalScorer(cvs if isinstance(cvs, str) else [cv.text for cv in cvs])
     opened: dict[str, JobSource] = {}
     consecutive_failures = 0
 

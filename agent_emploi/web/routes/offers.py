@@ -40,12 +40,16 @@ def _filters(request: Request) -> views.OfferFilters:
     sort = params.get("sort", "date")
     if sort not in views.SORTS:
         sort = "date"
+    cv = params.get("cv", "")
+    if cv not in request.app.state.config.profile.cv_labels():
+        cv = ""
     return views.OfferFilters(
         q=params.get("q", "").strip(),
         state=state,
         source=params.get("source", ""),
         days=days,
         sort=sort,
+        cv=cv,
     )
 
 

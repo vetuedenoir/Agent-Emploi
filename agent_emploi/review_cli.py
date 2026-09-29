@@ -385,7 +385,8 @@ def show(item: Pending, console: Console, *, position: str = "") -> None:
         header = f"[{position}] {header}"
     console.write(header)
     if fit is not None:
-        console.write(f"  adéquation {fit.score}/100 — {fit.reason}")
+        variant = f" · CV « {fit.cv} »" if fit.cv else ""
+        console.write(f"  adéquation {fit.score}/100{variant} — {fit.reason}")
     console.write(f"  annonce : {job.url}")
     if job.apply_url:
         ats = f" ({job.ats})" if job.ats else ""

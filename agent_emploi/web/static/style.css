@@ -95,6 +95,11 @@ a.tile:hover { text-decoration: none; border-color: var(--accent); }
 .state-approved, .state-prefilled, .state-submitted { background: var(--ok-bg); color: var(--ok); }
 .state-rejected { background: var(--ko-bg); color: var(--ko); }
 
+.cv-badge {
+  display: inline-block; padding: 0.05rem 0.5rem; border-radius: 999px;
+  font-size: 0.8rem; white-space: nowrap; background: var(--info-bg);
+}
+
 .filters { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
 .filters input, .filters select, .filters button {
   font: inherit; padding: 0.45rem 0.6rem; color: var(--text);

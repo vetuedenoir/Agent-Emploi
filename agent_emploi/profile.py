@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from agent_emploi.config import Config, ProfileConfig
@@ -153,14 +153,47 @@ class BannedPhrases:
 
 
 @dataclass(frozen=True)
+class CvText:
+    """Un CV texte chargé. `id` et `label` sont absents en mode à un seul CV."""
+
+    id: str | None
+    label: str | None
+    text: str
+
+
+def load_cvs(config: Config | ProfileConfig) -> list[CvText]:
+    """Les CV texte du profil : les variantes déclarées, sinon `cv_markdown`.
+
+    Lève `FileNotFoundError` si l'un manque : sans lui, ni le filtrage lexical
+    ni le fit-check n'ont de quoi juger.
+    """
+    profile = config.profile if isinstance(config, Config) else config
+    if profile.variants:
+        sources = [(v.id, v.label, v.markdown) for v in profile.variants]
+    else:
+        sources = [(None, None, profile.cv_markdown)]
+    cvs = []
+    for cv_id, label, path in sources:
+        if not Path(path).exists():
+            raise FileNotFoundError(f"CV texte introuvable: {path} — requis pour juger les offres")
+        cvs.append(CvText(cv_id, label, load_cv(path)))
+    return cvs
+
+
+@dataclass(frozen=True)
 class Profile:
-    """Le profil chargé, prêt à être injecté dans les prompts."""
+    """Le profil chargé, prêt à être injecté dans les prompts.
+
+    `cv_text` est le CV que lisent la lettre et la relecture ; avec plusieurs
+    variantes, `for_cv` rend le profil recentré sur l'une d'elles.
+    """
 
     cv_text: str
     voice: str
     banned: BannedPhrases
     cv_fr: Path
     cv_en: Path
+    cvs: tuple[CvText, ...] = ()
 
     @classmethod
     def load(cls, config: Config | ProfileConfig) -> Profile:
@@ -172,12 +205,7 @@ class Profile:
         la raison la plus fréquente d'une lettre au style générique.
         """
         profile = config.profile if isinstance(config, Config) else config
-
-        if not profile.cv_markdown.exists():
-            raise FileNotFoundError(
-                f"CV texte introuvable: {profile.cv_markdown} — requis pour rédiger"
-            )
-        cv_text = load_cv(profile.cv_markdown)
+        cvs = load_cvs(profile)
 
         voice = ""
         if profile.voice.exists():
@@ -188,12 +216,32 @@ class Profile:
             )
 
         return cls(
-            cv_text=cv_text,
+            cv_text=cvs[0].text,
             voice=voice,
             banned=BannedPhrases.load(profile.banned_phrases),
             cv_fr=profile.cv_fr,
             cv_en=profile.cv_en,
+            cvs=tuple(cvs),
         )
+
+    def for_cv(self, cv_id: str | None) -> Profile:
+        """Le profil dont `cv_text` est la variante demandée.
+
+        `None` (mode à un seul CV, verdict antérieur aux variantes) garde le
+        premier CV ; un identifiant inconnu aussi, avec un avertissement — la
+        variante a pu être retirée de la configuration depuis le verdict.
+        """
+        if cv_id is None or not self.cvs:
+            return self
+        for cv in self.cvs:
+            if cv.id == cv_id:
+                return replace(self, cv_text=cv.text)
+        logger.warning("variante de CV inconnue: %s — premier CV utilisé", cv_id)
+        return replace(self, cv_text=self.cvs[0].text)
+
+    def label(self, cv_id: str | None) -> str | None:
+        """Nom affiché d'une variante, `None` si inconnue ou absente."""
+        return next((cv.label for cv in self.cvs if cv.id == cv_id and cv_id), None)
 
     @property
     def has_voice(self) -> bool:

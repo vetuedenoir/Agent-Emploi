@@ -225,3 +225,18 @@ class TestScreenContent:
         assert not result.passed
         assert result.reason.startswith("lexical:")
         assert result.lexical_score is not None
+
+
+class TestLexicalScorerVariants:
+    def test_score_is_the_closest_variant(self):
+        dev, ml = "backend api rest django postgres", "tensorflow keras vision deep learning"
+        scorer = LexicalScorer([dev, ml])
+        offer = "stage deep learning vision tensorflow"
+        assert scorer.score(offer) == pytest.approx(LexicalScorer(ml).score(offer))
+        assert scorer.best(offer) == 1
+        assert scorer.best("api rest backend django") == 0
+
+    def test_single_text_behaves_as_before(self):
+        assert LexicalScorer([CV]).score("machine learning") == pytest.approx(
+            LexicalScorer(CV).score("machine learning")
+        )

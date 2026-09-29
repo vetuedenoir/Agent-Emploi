@@ -90,6 +90,14 @@ def _vector(tokens: list[str]) -> dict[str, float]:
     return {token: weight / norm for token, weight in weights.items()}
 
 
+def _cosine(left: dict[str, float], right: dict[str, float]) -> float:
+    """Produit scalaire de deux vecteurs normés, parcouru sur le plus petit."""
+    if not left or not right:
+        return 0.0
+    smaller, larger = (left, right) if len(left) < len(right) else (right, left)
+    return sum(weight * larger.get(token, 0.0) for token, weight in smaller.items())
+
+
 class LexicalScorer:
     """Similarité cosinus entre le CV et une offre, sur vecteurs log-TF.
 
@@ -97,24 +105,28 @@ class LexicalScorer:
     offre coûte alors un parcours de sa description. Pas de dépendance externe,
     et surtout un score reproductible — le même couple (CV, offre) donne
     toujours la même valeur, ce qui rend les seuils réglables.
+
+    Avec plusieurs variantes du CV, le score est celui de la plus proche :
+    une offre doit ressembler à l'une d'elles, pas à leur moyenne.
     """
 
-    def __init__(self, cv_text: str) -> None:
-        self.cv_vector = _vector(tokenize(cv_text))
+    def __init__(self, cv_text: str | list[str]) -> None:
+        texts = [cv_text] if isinstance(cv_text, str) else list(cv_text)
+        self.cv_vectors = [_vector(tokenize(text)) for text in texts]
+
+    def scores(self, text: str) -> list[float]:
+        """Score de l'offre contre chaque CV, dans l'ordre de construction."""
+        other = _vector(tokenize(text))
+        return [_cosine(cv_vector, other) for cv_vector in self.cv_vectors]
 
     def score(self, text: str) -> float:
         """Score dans [0, 1] : 0 si aucun vocabulaire commun."""
-        if not self.cv_vector:
-            return 0.0
-        other = _vector(tokenize(text))
-        if not other:
-            return 0.0
-        smaller, larger = (
-            (other, self.cv_vector)
-            if len(other) < len(self.cv_vector)
-            else (self.cv_vector, other)
-        )
-        return sum(weight * larger.get(token, 0.0) for token, weight in smaller.items())
+        return max(self.scores(text), default=0.0)
+
+    def best(self, text: str) -> int:
+        """Indice du CV le plus proche de l'offre (le premier à égalité)."""
+        scores = self.scores(text)
+        return scores.index(max(scores)) if scores else 0
 
     def score_job(self, job: Job) -> float:
         """Score d'une offre : titre et description confondus."""

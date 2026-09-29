@@ -58,7 +58,13 @@ def _is_template(path: Path, *, fenced: bool = False) -> bool:
 def _check_profile(config: Config) -> bool:
     """Vérifie la présence des fichiers de profil. Seul le CV texte est bloquant."""
     healthy = True
-    required = {"CV (markdown)": config.profile.cv_markdown}
+    if config.profile.variants:
+        required = {
+            f"CV « {variant.label} » (markdown)": variant.markdown
+            for variant in config.profile.variants
+        }
+    else:
+        required = {"CV (markdown)": config.profile.cv_markdown}
     optional = {
         "CV français (PDF)": config.profile.cv_fr,
         "CV anglais (PDF)": config.profile.cv_en,
@@ -255,13 +261,14 @@ def cmd_screen(
     from agent_emploi.agents.fit import FitAgent
     from agent_emploi.agents.gate import GateAgent
     from agent_emploi.llm.router import Router
-    from agent_emploi.screen import load_cv_text, run_screen
+    from agent_emploi.profile import load_cvs
+    from agent_emploi.screen import run_screen
     from agent_emploi.search import run_search
     from agent_emploi.store.jobs import JobStore
 
     config.paths.ensure()
     try:
-        cv_text = load_cv_text(config)
+        cvs = load_cvs(config)
     except FileNotFoundError as exc:
         print(f"{FAIL} {exc}", file=sys.stderr)
         return 1
@@ -286,16 +293,16 @@ def cmd_screen(
 
     job_store = JobStore(config.paths.jobs_file)
     router = Router(config)
-    agent = FitAgent(router, cv_text, config.fit)
+    agent = FitAgent(router, cvs, config.fit)
     report = run_screen(
         config,
         candidates,
         seen=store,
         job_store=job_store,
         fit_agent=agent,
-        cv_text=cv_text,
+        cvs=cvs,
         record=not dry_run,
-        gate=GateAgent.from_config(config, cv_text, router.budget),
+        gate=GateAgent.from_config(config, [cv.text for cv in cvs], router.budget),
     )
 
     # Une route cassée produit la même erreur pour chaque offre : on n'en montre
@@ -605,12 +612,10 @@ def cmd_run(config: Config, *, limit: int | None, draft_limit: int | None,
     from agent_emploi.llm.router import Router
     from agent_emploi.manager import run_pipeline
     from agent_emploi.profile import Profile
-    from agent_emploi.screen import load_cv_text
     from agent_emploi.store.jobs import JobStore
 
     config.paths.ensure()
     try:
-        cv_text = load_cv_text(config)
         profile = Profile.load(config)
     except FileNotFoundError as exc:
         print(f"{FAIL} {exc}", file=sys.stderr)
@@ -634,14 +639,16 @@ def cmd_run(config: Config, *, limit: int | None, draft_limit: int | None,
         seen=store,
         job_store=job_store,
         profile=profile,
-        cv_text=cv_text,
-        fit_agent=FitAgent(router, cv_text, config.fit),
+        cvs=list(profile.cvs),
+        fit_agent=FitAgent(router, list(profile.cvs), config.fit),
         letter_agent=LetterAgent(router, profile, config.letter),
         review_agent=ReviewAgent(router, profile),
         limit=limit,
         draft_limit=draft_limit,
         record=not dry_run,
-        gate=GateAgent.from_config(config, cv_text, router.budget),
+        gate=GateAgent.from_config(
+            config, [cv.text for cv in profile.cvs], router.budget
+        ),
     )
 
     for error in report.errors[:5]:
@@ -707,16 +714,16 @@ def cmd_calibrate_gate(config: Config, *, sample_size: int) -> int:
     """Rejoue la porte Jev sur les offres déjà notées, pour en régler les seuils."""
     from agent_emploi.agents.gate import API_KEY_ENV, GateAgent
     from agent_emploi.calibrate import collect, fit_accepted, grid, sample
-    from agent_emploi.screen import load_cv_text
+    from agent_emploi.profile import load_cvs
     from agent_emploi.store.jobs import JobStore
 
     try:
-        cv_text = load_cv_text(config)
+        cvs = load_cvs(config)
     except FileNotFoundError as exc:
         print(f"{FAIL} {exc}", file=sys.stderr)
         return 1
     tracker = BudgetTracker(config.paths.usage_file, config.budget)
-    gate = GateAgent.from_config(config, cv_text, tracker, force=True)
+    gate = GateAgent.from_config(config, [cv.text for cv in cvs], tracker, force=True)
     if gate is None:
         print(f"{FAIL} {API_KEY_ENV} absente (voir .env.example)", file=sys.stderr)
         return 1

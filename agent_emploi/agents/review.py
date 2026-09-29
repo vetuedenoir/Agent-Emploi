@@ -97,7 +97,7 @@ class ReviewAgent:
         """Un appel LLM, sortie validée. Propage `LlmError` et `BudgetExceeded`."""
         verdict = self.router.structured(
             TASK,
-            build_prompt(job, letter, self.profile.cv_text),
+            build_prompt(job, letter, self.profile.for_cv(letter.cv).cv_text),
             ReviewVerdict,
             system=SYSTEM,
             job_id=job.id,

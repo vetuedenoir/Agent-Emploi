@@ -84,6 +84,7 @@
       <span class="muted small">
         {% if d.letter_origin == 'outbox' %}lue depuis <code>lettre.md</code>{% else %}version enregistrée dans <code>jobs.jsonl</code>{% endif %}
         {% if r.letter and r.letter.edited %} · corrigée à la main{% endif %}
+        {% if r.letter and r.letter.cv %} · écrite d'après le CV {{ CV_LABELS.get(r.letter.cv, r.letter.cv) }}{% endif %}
       </span>
     </h2>
     {% if can.edit_letter %}
@@ -132,7 +133,7 @@
 
   {% if r and r.fit %}
   <section class="card">
-    <h2>Adéquation <span class="verdict {{ r.fit.verdict }}">{{ r.fit.score }} · {{ r.fit.verdict }}</span></h2>
+    <h2>Adéquation <span class="verdict {{ r.fit.verdict }}">{{ r.fit.score }} · {{ r.fit.verdict }}</span>{% if r.fit.cv %} <span class="cv-badge">CV {{ CV_LABELS.get(r.fit.cv, r.fit.cv) }}</span>{% endif %}</h2>
     <p>{{ r.fit.reason }}</p>
     {% if r.fit.matched %}<h3>Points forts</h3><ul>{% for m in r.fit.matched %}<li>{{ m }}</li>{% endfor %}</ul>{% endif %}
     {% if r.fit.gaps %}<h3>Manques</h3><ul>{% for g in r.fit.gaps %}<li>{{ g }}</li>{% endfor %}</ul>{% endif %}
