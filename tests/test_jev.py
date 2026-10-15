@@ -84,7 +84,7 @@ class TestSuccess:
 
 
 class TestFailures:
-    @pytest.mark.parametrize("status", [401, 402])
+    @pytest.mark.parametrize("status", [401, 402, 403])
     def test_account_errors_mean_unavailable(self, scripted, status):
         scripted(response(status))
         c, waits = client()
@@ -105,7 +105,7 @@ class TestFailures:
         c, waits = client()
         assert ask(c).tokens_in == 1800
         assert waits == [7.0]
-        # Même clé d'idempotence d'un essai à l'autre : pas de double facturation.
+        # Même clé d'idempotence d'un essai à l'autre.
         assert {call["headers"]["Idempotency-Key"] for call in calls} == {"k-1"}
 
     def test_upstream_and_network_errors_back_off(self, scripted):
@@ -124,6 +124,12 @@ class TestFailures:
         with pytest.raises(JevError, match="reprises"):
             ask(c)
         assert len(waits) == jev.MAX_RETRIES
+
+    def test_overload_is_retried(self, scripted):
+        scripted(response(529), response(200, ANSWERS))
+        c, waits = client()
+        assert ask(c).tokens_in == 1800
+        assert waits == [2.0]
 
     def test_malformed_body_is_an_error(self, scripted):
         scripted(response(200, {"surprise": True}))

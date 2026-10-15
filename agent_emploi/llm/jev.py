@@ -1,7 +1,6 @@
-"""Client de l'API Jev — un modèle de décision, pas de rédaction.
+"""Client de l'API Jev (TypeSafe) — un modèle de décision, pas de rédaction.
 
-Jev ne rédige rien : il reçoit un état (≤ 8 000 caractères sérialisés) et des
-questions typées, et renvoie pour chacune un choix, un score sur une échelle
+Jev ne rédige rien : il reçoit un état et des questions typées, et renvoie pour chacune un choix, un score sur une échelle
 ordonnée ou une probabilité oui/non (`noul`). C'est la forme exacte d'un étage
 de filtrage, pour un coût d'entrée de 0,042 $ par million de tokens, la sortie
 étant gratuite.
@@ -28,26 +27,30 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-ENDPOINT = "https://jevmodel.org/v1/systemone"
+#: https://docs.typesafe.ai/api
+ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 MODEL = "jev-latest"
 TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
-#: Plafond de l'API sur l'état sérialisé, en caractères.
+#: Plafond de l'état sérialisé, en caractères. TypeSafe accepte bien plus
+#: (64k tokens par requête) ; ce plafond est le nôtre : il borne le coût par
+#: offre et garde la porte dans la zone où Jev est le plus précis.
 MAX_STATE_CHARS = 8000
 
-#: Reprises consenties sur 429, 502 et pannes de transport. Jev les documente
-#: comme rejouables ; l'en-tête `Idempotency-Key` garantit qu'une reprise d'un
-#: appel déjà facturé ne l'est pas deux fois.
+#: Reprises consenties sur 429, 529 et pannes de transport, que TypeSafe
+#: documente comme rejouables. L'en-tête `Idempotency-Key` est toujours envoyé,
+#: mais TypeSafe ne le documente pas : une reprise peut être facturée deux fois.
 MAX_RETRIES = 3
 
 #: Première attente avant reprise, doublée à chaque essai : 2, 4, 8 secondes.
 BACKOFF = 2.0
 
 #: Statuts qui disent quelque chose du compte, pas de la requête.
-_ACCOUNT_STATUSES = frozenset({401, 402})
+_ACCOUNT_STATUSES = frozenset({401, 402, 403})
 
-#: Statuts rejouables tels quels.
-_RETRY_STATUSES = frozenset({429, 502})
+#: Statuts rejouables tels quels : limite de débit, surcharge (529), et pannes
+#: de passerelle.
+_RETRY_STATUSES = frozenset({429, 502, 503, 529})
 
 
 class JevUnavailable(RuntimeError):
@@ -69,13 +72,10 @@ class JevResponse:
 def serialized_length(state: Any) -> int:
     """Longueur de l'état, mesurée comme l'API pourrait la mesurer au pire.
 
-    La documentation dit « 8 000 caractères » sans dire lesquels. Trois états
-    mesurés à 7 999–8 000 en JSON compact ont été refusés (HTTP 422) : l'API
-    compte donc plus large. Deux lectures plausibles l'expliquent, en unités
-    UTF-16 (le `.length` de JavaScript, où un émoji compte double) ou en JSON
-    avec espaces après `,` et `:`. On retient les deux à la fois : la marge
-    coûte quelques dizaines de caractères de description, un refus coûte
-    l'offre entière.
+    Mesure héritée de l'ancienne API, qui refusait (HTTP 422) des états de
+    7 999–8 000 caractères en JSON compact : elle comptait en unités UTF-16
+    (un émoji compte double) et/ou en JSON avec espaces après `,` et `:`. On
+    garde la mesure la plus large, qui ne coûte que quelques caractères.
     """
     text = json.dumps(state, ensure_ascii=False)
     return len(text.encode("utf-16-le")) // 2
@@ -108,7 +108,7 @@ class JevClient:
         """Pose les questions sur l'état. Lève `JevUnavailable` ou `JevError`."""
         size = serialized_length(state)
         if size > MAX_STATE_CHARS:
-            # Mieux vaut échouer ici qu'être facturé d'un 422.
+            # Mieux vaut échouer ici qu'envoyer un état hors budget.
             raise JevError(f"état de {size} caractères > {MAX_STATE_CHARS}")
 
         payload = {"model": self.model, "state": state, "questions": questions}
